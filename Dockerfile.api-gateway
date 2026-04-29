@@ -1,0 +1,10 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+RUN npm init -y \
+  && npm install express mongoose cors bcrypt jsonwebtoken tsx
+
+EXPOSE 3333
+
+CMD ["npx", "tsx", "backend/apps/api/src/main.ts"]

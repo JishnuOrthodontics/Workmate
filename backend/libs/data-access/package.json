@@ -1,0 +1,11 @@
+{
+  "name": "@d4dent/data-access",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "dependencies": {
+    "mongoose": "^8.0.0"
+  },
+  "devDependencies": {}
+}

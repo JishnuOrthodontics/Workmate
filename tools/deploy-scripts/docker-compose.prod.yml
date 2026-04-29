@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  registry:
+    image: registry:2
+    container_name: d4dent-registry
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry_data:/var/lib/registry
+    networks:
+      - d4dent-network
+
+  api-gateway:
+    image: localhost:5000/api-gateway:latest
+    container_name: d4dent-api-gateway
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3333
+      - MONGODB_URI=mongodb://admin:${MONGO_PASSWORD}@mongodb:27017/d4dent?authSource=admin
+      - PAYMENT_SERVICE_URL=http://payment-service:3003
+      - CORS_ORIGIN=https://d4dent.org,http://localhost:3000
+    ports:
+      - "3333:3333"
+    depends_on:
+      - mongodb
+      - payment-service
+    networks:
+      - d4dent-network
+
+  auth-service:
+    image: localhost:5000/auth-service:latest
+    container_name: d4dent-auth-service
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=3334
+      - MONGODB_URI=mongodb://admin:${MONGO_PASSWORD}@mongodb:27017/d4dent?authSource=admin
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "3334:3334"
+    depends_on:
+      - mongodb
+    networks:
+      - d4dent-network
+
+  payment-service:
+    image: localhost:5000/payment-service:latest
+    container_name: d4dent-payment-service
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3003
+      - MONGODB_URI=mongodb://admin:${MONGO_PASSWORD}@mongodb:27017/d4dent?authSource=admin
+      - PHONEPE_MERCHANT_ID=${PHONEPE_MERCHANT_ID}
+      - PHONEPE_SALT_KEY=${PHONEPE_SALT_KEY}
+      - PHONEPE_SALT_INDEX=${PHONEPE_SALT_INDEX}
+      - PAYOUT_WINDOW_DAYS=${PAYOUT_WINDOW_DAYS:-7}
+    ports:
+      - "3003:3003"
+    depends_on:
+      - mongodb
+    networks:
+      - d4dent-network
+
+  mongodb:
+    image: mongo:6.0
+    container_name: d4dent-mongodb
+    restart: unless-stopped
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - d4dent-network
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: d4dent-mongo-express
+    restart: unless-stopped
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=${MONGO_PASSWORD}
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+    ports:
+      - "8081:8081"
+    depends_on:
+      - mongodb
+    networks:
+      - d4dent-network
+
+networks:
+  d4dent-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  registry_data:

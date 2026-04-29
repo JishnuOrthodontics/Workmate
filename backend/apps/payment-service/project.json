@@ -1,0 +1,41 @@
+{
+  "$schema": "../../../node_modules/nx/schemas/project-schema.json",
+  "name": "payment-service",
+  "sourceRoot": "backend/apps/payment-service/src",
+  "projectType": "application",
+  "tags": ["type:service", "scope:payment", "tech:node"],
+  "implicitDependencies": ["data-access"],
+  "targets": {
+    "build": {
+      "executor": "@nx/esbuild:esbuild",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "platform": "node",
+        "format": ["cjs"],
+        "main": "backend/apps/payment-service/src/main.ts",
+        "outputPath": "dist/backend/apps/payment-service",
+        "tsconfig": "backend/apps/payment-service/tsconfig.app.json",
+        "external": ["mongoose", "jsonwebtoken"],
+        "assets": ["backend/apps/payment-service/src/assets"]
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "options": {
+        "buildTarget": "payment-service:build"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:run-tests"
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint"
+    },
+    "type-check": {
+      "executor": "@nx/js:typescript",
+      "options": {
+        "tsConfig": "backend/apps/payment-service/tsconfig.app.json"
+      }
+    }
+  }
+}

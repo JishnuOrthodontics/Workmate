@@ -1,0 +1,55 @@
+{
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "name": "frontend",
+  "sourceRoot": "frontend/app/src",
+  "projectType": "application",
+  "tags": ["type:app", "scope:customer", "tech:nextjs"],
+  "implicitDependencies": ["ui", "i18n"],
+  "targets": {
+    "build": {
+      "executor": "@nx/next:build",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "root": "frontend/app",
+        "outputPath": "dist/frontend/app",
+        "configFile": "frontend/app/next.config.mjs"
+      }
+    },
+    "serve": {
+      "executor": "@nx/next:server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "frontend:build",
+        "hmr": true
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "frontend:build:development"
+        },
+        "production": {
+          "hmr": false
+        }
+      }
+    },
+    "export": {
+      "executor": "@nx/next:export",
+      "options": {
+        "buildTarget": "frontend:build:production"
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:run-tests",
+      "outputs": ["{workspaceRoot}/coverage/frontend/app"],
+      "options": {
+        "jestConfig": "frontend/app/jest.config.ts"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["frontend/app/**/*.{ts,tsx,js,jsx}"]
+      }
+    }
+  }
+}

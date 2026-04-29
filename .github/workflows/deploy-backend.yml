@@ -1,0 +1,140 @@
+name: Build and Deploy Backend - NEW GCP Account
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'backend/apps/**'
+      - 'backend/libs/**'
+      - 'tools/**'
+      - 'Dockerfile.api-gateway'
+      - 'Dockerfile.auth-service'
+      - 'Dockerfile.payment-service'
+  pull_request:
+    branches: [main]
+
+env:
+  GCP_PROJECT_ID: project-09390695-9f59-4232-9bf
+  GCP_REGION: asia-south1
+  VM_INSTANCE: d4dent-backend-s1
+  REGISTRY_HOST: localhost:5000
+  DEPLOY_DIR: /opt/d4dent
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  affected:
+    runs-on: ubuntu-latest
+    outputs:
+      affected: ${{ steps.affected.outputs.affected }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: nrwl/nx-set-shas@v4
+      - name: Configure Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm ci
+      - name: Check affected apps
+        id: affected
+        run: |
+          AFFECTED=$(npx nx affected:apps --base=origin/main --json 2>/dev/null || echo '[]')
+          echo "affected=$AFFECTED" >> $GITHUB_OUTPUT
+
+  build:
+    needs: affected
+    if: ${{ needs.affected.outputs.affected != '[]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker images
+        run: |
+          docker build -f Dockerfile.api-gateway \
+            -t ${{ env.REGISTRY_HOST }}/api-gateway:${{ github.sha }} \
+            -t ${{ env.REGISTRY_HOST }}/api-gateway:latest \
+            .
+          docker build -f Dockerfile.auth-service \
+            -t ${{ env.REGISTRY_HOST }}/auth-service:${{ github.sha }} \
+            -t ${{ env.REGISTRY_HOST }}/auth-service:latest \
+            .
+          docker build -f Dockerfile.payment-service \
+            -t ${{ env.REGISTRY_HOST }}/payment-service:${{ github.sha }} \
+            -t ${{ env.REGISTRY_HOST }}/payment-service:latest \
+            .
+      - name: Save images
+        run: |
+          docker save ${{ env.REGISTRY_HOST }}/api-gateway:${{ github.sha }} | gzip > /tmp/api-gateway.tar.gz
+          docker save ${{ env.REGISTRY_HOST }}/auth-service:${{ github.sha }} | gzip > /tmp/auth-service.tar.gz
+          docker save ${{ env.REGISTRY_HOST }}/payment-service:${{ github.sha }} | gzip > /tmp/payment-service.tar.gz
+      - name: Upload Docker image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-images
+          path: |
+            /tmp/api-gateway.tar.gz
+            /tmp/auth-service.tar.gz
+            /tmp/payment-service.tar.gz
+          retention-days: 1
+
+  deploy:
+    needs: [affected, build]
+    if: ${{ github.ref == 'refs/heads/main' && needs.affected.outputs.affected != '[]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download image artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-images
+          path: /tmp/docker-images
+      - name: Configure GCP Auth (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/${{ secrets.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/github-pool/providers/github-provider
+          service_account: deploy@d4dentmain3.iam.gserviceaccount.com
+          create_credentials_file: true
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+      - name: Load images and push to local registry on VM
+        run: |
+          gcloud compute ssh d4dent-backend-s1 \
+            --zone=asia-south1-a \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --command="
+              docker ps | grep registry || docker run -d -p 5000:5000 --restart=always --name registry registry:2
+            "
+          for img in api-gateway auth-service payment-service; do
+            if [ -f /tmp/docker-images/${img}.tar.gz ]; then
+              gcloud compute scp /tmp/docker-images/${img}.tar.gz d4dent-backend-s1:/tmp/ --zone=asia-south1-a --project=${{ env.GCP_PROJECT_ID }}
+              gcloud compute ssh d4dent-backend-s1 \
+                --zone=asia-south1-a \
+                --project=${{ env.GCP_PROJECT_ID }} \
+                --command="
+                  docker load -i /tmp/${img}.tar.gz
+                  docker tag ${{ env.REGISTRY_HOST }}/${img}:${{ github.sha }} ${{ env.REGISTRY_HOST }}/${img}:latest
+                  rm /tmp/${img}.tar.gz
+                "
+            fi
+          done
+      - name: Deploy to GCE VM
+        run: |
+          gcloud compute ssh d4dent-backend-s1 \
+            --zone=asia-south1-a \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --command="cd ${{ env.DEPLOY_DIR }} && \
+              docker-compose -f docker-compose.prod.yml pull && \
+              docker-compose -f docker-compose.prod.yml up -d"
+      - name: Verify deployment
+        run: |
+          gcloud compute ssh d4dent-backend-s1 \
+            --zone=asia-south1-a \
+            --project=${{ env.GCP_PROJECT_ID }} \
+            --command="docker ps --format 'table {{.Names}}\t{{.Status}}'"

@@ -1,0 +1,114 @@
+import './globals.css'
+import { AuthProvider } from './auth-provider'
+
+export const metadata = {
+  title: 'Workmate - Rural Home Services',
+  description: 'On-demand home services marketplace for rural Kerala',
+}
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
+        <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+        <script dangerouslySetInnerHTML={{ __html: `
+          tailwind.config = {
+            darkMode: "class",
+            theme: {
+              extend: {
+                "colors": {
+                  "on-secondary-fixed": "#3d0500",
+                  "secondary": "#9d422e",
+                  "surface-bright": "#fcf9f2",
+                  "tertiary-container": "#00490f",
+                  "on-primary-fixed": "#002105",
+                  "on-secondary-container": "#742413",
+                  "on-error-container": "#93000a",
+                  "outline-variant": "#c2c9bd",
+                  "inverse-surface": "#31312c",
+                  "surface-container": "#f1eee7",
+                  "on-tertiary-container": "#6bbb68",
+                  "background": "#fcf9f2",
+                  "surface-dim": "#dcdad3",
+                  "surface-container-low": "#f6f3ec",
+                  "surface-container-lowest": "#ffffff",
+                  "surface-container-high": "#ebe8e1",
+                  "primary-container": "#1e4620",
+                  "secondary-fixed-dim": "#ffb4a4",
+                  "on-tertiary-fixed": "#002204",
+                  "primary-fixed-dim": "#a4d29f",
+                  "inverse-primary": "#a4d29f",
+                  "tertiary": "#003007",
+                  "on-secondary": "#ffffff",
+                  "surface": "#fcf9f2",
+                  "secondary-fixed": "#ffdad3",
+                  "on-primary-container": "#87b483",
+                  "on-primary": "#ffffff",
+                  "tertiary-fixed-dim": "#88d982",
+                  "on-background": "#1c1c18",
+                  "primary": "#052f0c",
+                  "surface-tint": "#3f683e",
+                  "on-tertiary": "#ffffff",
+                  "on-error": "#ffffff",
+                  "secondary-container": "#fd8c72",
+                  "surface-container-highest": "#e5e2db",
+                  "outline": "#72796f",
+                  "surface-variant": "#e5e2db",
+                  "on-primary-fixed-variant": "#274f28",
+                  "error": "#ba1a1a",
+                  "on-surface-variant": "#424940",
+                  "on-surface": "#1c1c18",
+                  "error-container": "#ffdad6",
+                  "inverse-on-surface": "#f3f0e9",
+                  "primary-fixed": "#c0efba",
+                  "on-secondary-fixed-variant": "#7e2b19",
+                  "tertiary-fixed": "#a3f69c",
+                  "on-tertiary-fixed-variant": "#005312"
+                },
+                "borderRadius": {
+                  "DEFAULT": "0.25rem",
+                  "lg": "0.5rem",
+                  "xl": "0.75rem",
+                  "full": "9999px"
+                },
+                "spacing": {
+                  "md": "24px",
+                  "xl": "64px",
+                  "base": "8px",
+                  "margin": "32px",
+                  "xs": "4px",
+                  "lg": "40px",
+                  "sm": "12px",
+                  "gutter": "24px"
+                },
+                "fontFamily": {
+                  "h3": ["Inter"],
+                  "label-md": ["Inter"],
+                  "caption": ["Inter"],
+                  "body-lg": ["Inter"],
+                  "h2": ["Inter"],
+                  "h1": ["Inter"],
+                  "body-md": ["Inter"]
+                },
+                "fontSize": {
+                  "h3": ["24px", { "lineHeight": "32px", "letterSpacing": "0", "fontWeight": "600" }],
+                  "label-md": ["14px", { "lineHeight": "20px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+                  "caption": ["12px", { "lineHeight": "16px", "letterSpacing": "0", "fontWeight": "400" }],
+                  "body-lg": ["18px", { "lineHeight": "28px", "letterSpacing": "0", "fontWeight": "400" }],
+                  "h2": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                  "h1": ["40px", { "lineHeight": "48px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                  "body-md": ["16px", { "lineHeight": "24px", "letterSpacing": "0", "fontWeight": "400" }]
+                }
+              }
+            }
+          }
+        ` }} />
+      </head>
+      <body className="min-h-screen bg-[#fcf9f2]">
+        <AuthProvider>{children}</AuthProvider>
+      </body>
+    </html>
+  )
+}

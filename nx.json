@@ -1,0 +1,146 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "version": 2,
+  "mode": "distributed",
+  "extends": ["@nx/react", "@nx/node", "@nx/next", "@nx/eslint"],
+  
+  "tasksRunnerOptions": {
+    "default": {
+      "runner": "@nx/rpm",
+      "options": {
+        "cacheableOperations": ["build", "lint", "test", "type-check"],
+        "parallelism": 8
+      }
+    },
+    "ci": {
+      "runner": "@nx/rpm",
+      "options": {
+        "cacheableOperations": ["build", "lint", "test", "type-check"],
+        "parallelism": 12,
+        "cacheDirectory": "/tmp/nx-cache"
+      }
+    }
+  },
+
+  "namedInputs": {
+    "default": ["{projectRoot}/**/*", "sharedGlobals"],
+    "production": [
+      "default",
+      "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
+      "!{projectRoot}/tsconfig.spec.json",
+      "!{projectRoot}/src/test-setup.[jt]s",
+      "!{projectRoot}/.eslintrc.json"
+    ],
+    "sharedGlobals": ["{workspaceRoot}/nx.json", "{workspaceRoot}/package-lock.json"]
+  },
+
+  "targetDefaults": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["production", "{workspaceRoot}/tsconfig.base.json"],
+      "cache": true,
+      "outputs": ["{options.outputPath}"]
+    },
+    "lint": {
+      "inputs": ["default", "{workspaceRoot}/.eslintrc.json", "{workspaceRoot}/.eslintignore"],
+      "cache": true
+    },
+    "test": {
+      "inputs": ["default", "^production"],
+      "cache": true
+    },
+    "type-check": {
+      "cache": true,
+      "inputs": ["default", "{workspaceRoot}/tsconfig.base.json"]
+    },
+    "serve": {
+      "cache": false
+    }
+  },
+
+  "generators": {
+    "@nx/react": {
+      "application": {
+        "babel": true,
+        "style": "scss",
+        "linter": "eslint",
+        "bundler": "vite"
+      },
+      "component": {
+        "style": "scss"
+      },
+      "library": {
+        "style": "scss",
+        "linter": "eslint"
+      }
+    },
+    "@nx/next": {
+      "application": {
+        "style": "scss",
+        "linter": "eslint"
+      }
+    },
+    "@nx/node": {
+      "application": {
+        "buildTarget": "@nx/esbuild:esbuild",
+        "linter": "eslint"
+      }
+    }
+  },
+
+  "projects": {
+    "frontend": {
+      "tags": ["type:app", "scope:customer", "tech:nextjs"],
+      "implicitDependencies": ["ui", "i18n"]
+    },
+    "customer-web": {
+      "tags": ["type:app", "scope:customer", "tech:pwa"],
+      "implicitDependencies": ["ui", "data-access"]
+    },
+    "worker-app": {
+      "tags": ["type:app", "scope:worker", "tech:react-native"],
+      "implicitDependencies": ["ui", "safety-utils", "data-access"]
+    },
+    "admin-dashboard": {
+      "tags": ["type:app", "scope:internal", "tech:nextjs"]
+    },
+    "api-gateway": {
+      "tags": ["type:service", "scope:api", "tech:node"],
+      "implicitDependencies": ["data-access"]
+    },
+    "payment-service": {
+      "tags": ["type:service", "scope:payment", "tech:node"],
+      "implicitDependencies": ["data-access"]
+    },
+    "ui": {
+      "tags": ["type:lib", "scope:shared", "tech:react"]
+    },
+    "data-access": {
+      "tags": ["type:lib", "scope:shared", "layer:data"]
+    },
+    "voice-nlp": {
+      "tags": ["type:lib", "scope:shared", "layer:ai"]
+    },
+    "i18n": {
+      "tags": ["type:lib", "scope:shared", "layer:i18n"]
+    },
+    "safety-utils": {
+      "tags": ["type:lib", "scope:shared", "layer:safety"]
+    },
+    "payment-utils": {
+      "tags": ["type:lib", "scope:shared", "layer:payment"]
+    },
+    "nri-utils": {
+      "tags": ["type:lib", "scope:shared", "layer:nri"]
+    },
+    "escalation": {
+      "tags": ["type:lib", "scope:shared", "layer:escalation"]
+    },
+    "insurance": {
+      "tags": ["type:lib", "scope:shared", "layer:insurance"]
+    },
+    "analytics": {
+      "tags": ["type:lib", "scope:shared", "layer:analytics"]
+    }
+  }
+}
