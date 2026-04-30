@@ -17,6 +17,7 @@ const app = express();
 type ProviderSearchQuery = {
   q?: string;
   category?: string;
+  languages?: string[];
   minPrice?: number;
   maxPrice?: number;
   minRating?: number;
@@ -38,6 +39,7 @@ type ProviderListItem = {
   yearsExperience: number;
   district: string;
   locality: string;
+  languages: string[];
   isOnline: boolean;
   availabilityTags: string[];
 };
@@ -51,7 +53,7 @@ type ProviderSearchResponse = {
 };
 
 type BookingStatus = 'requested' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
-type AuthRole = 'customer' | 'provider';
+type AuthRole = 'customer' | 'provider' | 'admin';
 type AuthClaims = { uid: string; role: AuthRole };
 
 async function proxyPaymentService<T>(path: string, init?: RequestInit): Promise<T> {
@@ -129,7 +131,7 @@ app.use(express.json());
 // CORS configuration for React app
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
@@ -149,6 +151,237 @@ app.get('/health', (req, res) => {
     service: 'api',
     mongoConnected: mongoose.connection.readyState === 1,
   });
+});
+
+app.get('/api/admin/overview', requireAuth(['admin']), async (_req, res) => {
+  try {
+    const [totalCustomers, totalProviders, totalBookings, completedBookings] = await Promise.all([
+      UserModel.countDocuments({ role: 'customer' }),
+      UserModel.countDocuments({ role: 'worker' }),
+      JobModel.countDocuments({}),
+      JobModel.countDocuments({ status: 'completed' }),
+    ]);
+
+    const recentRows = await JobModel.find({})
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .select('jobId status pricing.breakdown schedule.scheduledStart customerId workerId createdAt')
+      .lean();
+
+    const customerIds = [...new Set(recentRows.map((r: any) => r.customerId).filter(Boolean))];
+    const providerIds = [...new Set(recentRows.map((r: any) => r.workerId).filter(Boolean))];
+    const [customers, providers] = await Promise.all([
+      UserModel.find({ _id: { $in: customerIds } }).select('profile.name').lean(),
+      UserModel.find({ _id: { $in: providerIds } }).select('profile.name').lean(),
+    ]);
+    const customerMap = new Map(customers.map((c: any) => [String(c._id), String(c.profile?.name || 'Customer')]));
+    const providerMap = new Map(providers.map((p: any) => [String(p._id), String(p.profile?.name || 'Provider')]));
+
+    const recentActivity = recentRows.map((row: any) => ({
+      id: String(row.jobId),
+      customerName: customerMap.get(String(row.customerId)) || 'Customer',
+      providerName: providerMap.get(String(row.workerId)) || 'Provider',
+      serviceName: String(row?.pricing?.breakdown?.[0]?.item || 'Service'),
+      status: String(row.status || 'requested'),
+      scheduledAt: row?.schedule?.scheduledStart,
+      createdAt: row.createdAt,
+    }));
+
+    return res.json({
+      success: true,
+      data: {
+        kpis: {
+          totalCustomers,
+          totalProviders,
+          totalBookings,
+          completedBookings,
+        },
+        recentActivity,
+      },
+    });
+  } catch (error) {
+    console.error('Admin overview failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch admin overview' });
+  }
+});
+
+app.get('/api/admin/customers', requireAuth(['admin']), async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize || 20)));
+    const skip = (page - 1) * pageSize;
+
+    const filter: Record<string, unknown> = { role: 'customer' };
+    if (q) {
+      const re = new RegExp(q, 'i');
+      filter.$or = [{ 'profile.name': re }, { 'profile.phone': re }, { uid: re }];
+    }
+
+    const [total, rows] = await Promise.all([
+      UserModel.countDocuments(filter),
+      UserModel.find(filter)
+        .select('uid profile.name profile.phone profile.location.district createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(pageSize)
+        .lean(),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        items: rows.map((row: any) => ({
+          id: String(row._id),
+          uid: String(row.uid || ''),
+          name: String(row?.profile?.name || ''),
+          phone: String(row?.profile?.phone || ''),
+          location: String(row?.profile?.location?.district || ''),
+          createdAt: row.createdAt,
+        })),
+        total,
+        page,
+        pageSize,
+      },
+    });
+  } catch (error) {
+    console.error('Admin customers failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch customers' });
+  }
+});
+
+app.get('/api/admin/providers', requireAuth(['admin']), async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize || 20)));
+    const skip = (page - 1) * pageSize;
+
+    const filter: Record<string, unknown> = { role: 'worker' };
+    if (q) {
+      const re = new RegExp(q, 'i');
+      filter.$or = [{ 'profile.name': re }, { 'profile.phone': re }, { uid: re }, { 'workerProfile.skills.category': re }];
+    }
+
+    const [total, rows] = await Promise.all([
+      UserModel.countDocuments(filter),
+      UserModel.find(filter)
+        .select('uid profile.name profile.phone profile.location.district workerProfile.isOnline workerProfile.skills workerProfile.performance.rating createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(pageSize)
+        .lean(),
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        items: rows.map((row: any) => ({
+          id: String(row._id),
+          uid: String(row.uid || ''),
+          name: String(row?.profile?.name || ''),
+          phone: String(row?.profile?.phone || ''),
+          location: String(row?.profile?.location?.district || ''),
+          isOnline: Boolean(row?.workerProfile?.isOnline),
+          rating: Number(row?.workerProfile?.performance?.rating || 0),
+          skills: ((row?.workerProfile?.skills || []) as Array<any>).map((s) => String(s?.category || '')).filter(Boolean),
+          createdAt: row.createdAt,
+        })),
+        total,
+        page,
+        pageSize,
+      },
+    });
+  } catch (error) {
+    console.error('Admin providers failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch providers' });
+  }
+});
+
+app.get('/api/admin/bookings', requireAuth(['admin']), async (req, res) => {
+  try {
+    const q = String(req.query.q || '').trim();
+    const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize || 20)));
+    const skip = (page - 1) * pageSize;
+
+    const filter: Record<string, unknown> = {};
+    if (q) {
+      const re = new RegExp(q, 'i');
+      filter.$or = [{ jobId: re }, { 'pricing.breakdown.item': re }, { status: re }];
+    }
+
+    const [total, rows] = await Promise.all([
+      JobModel.countDocuments(filter),
+      JobModel.find(filter)
+        .select('jobId customerId workerId status payment.status pricing.breakdown schedule.scheduledStart createdAt')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(pageSize)
+        .lean(),
+    ]);
+
+    const customerIds = [...new Set(rows.map((r: any) => r.customerId).filter(Boolean))];
+    const providerIds = [...new Set(rows.map((r: any) => r.workerId).filter(Boolean))];
+    const [customers, providers] = await Promise.all([
+      UserModel.find({ _id: { $in: customerIds } }).select('profile.name').lean(),
+      UserModel.find({ _id: { $in: providerIds } }).select('profile.name').lean(),
+    ]);
+    const customerMap = new Map(customers.map((c: any) => [String(c._id), String(c.profile?.name || 'Customer')]));
+    const providerMap = new Map(providers.map((p: any) => [String(p._id), String(p.profile?.name || 'Provider')]));
+
+    return res.json({
+      success: true,
+      data: {
+        items: rows.map((row: any) => ({
+          id: String(row.jobId || ''),
+          customerName: customerMap.get(String(row.customerId)) || 'Customer',
+          providerName: providerMap.get(String(row.workerId)) || 'Provider',
+          serviceName: String(row?.pricing?.breakdown?.[0]?.item || 'Service'),
+          status: String(row.status || ''),
+          paymentStatus: String(row?.payment?.status || 'pending'),
+          scheduledAt: row?.schedule?.scheduledStart,
+          createdAt: row.createdAt,
+        })),
+        total,
+        page,
+        pageSize,
+      },
+    });
+  } catch (error) {
+    console.error('Admin bookings failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch bookings' });
+  }
+});
+
+app.get('/api/admin/reports', requireAuth(['admin']), async (_req, res) => {
+  try {
+    const [totalJobs, completedJobs, cancelledJobs, pendingPayments, totalCustomers, totalProviders] = await Promise.all([
+      JobModel.countDocuments({}),
+      JobModel.countDocuments({ status: 'completed' }),
+      JobModel.countDocuments({ status: 'cancelled' }),
+      JobModel.countDocuments({ 'payment.status': { $in: ['pending', 'authorized'] } }),
+      UserModel.countDocuments({ role: 'customer' }),
+      UserModel.countDocuments({ role: 'worker' }),
+    ]);
+    const completionRate = totalJobs > 0 ? Number(((completedJobs / totalJobs) * 100).toFixed(1)) : 0;
+
+    return res.json({
+      success: true,
+      data: {
+        totalJobs,
+        completedJobs,
+        cancelledJobs,
+        pendingPayments,
+        totalCustomers,
+        totalProviders,
+        completionRate,
+      },
+    });
+  } catch (error) {
+    console.error('Admin reports failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch reports' });
+  }
 });
 
 app.get('/api/customers/:customerUid/profile', requireAuth(['customer']), async (req, res) => {
@@ -175,6 +408,7 @@ app.get('/api/customers/:customerUid/profile', requireAuth(['customer']), async 
           whatsapp: Boolean(customer.settings?.notifications?.whatsapp),
           push: Boolean(customer.settings?.notifications?.push),
         },
+        savedProviderIds: (customer.settings?.savedProviderIds || []) as string[],
         updatedAt: customer.updatedAt,
       },
     });
@@ -190,12 +424,13 @@ app.patch('/api/customers/:customerUid/profile', requireAuth(['customer']), asyn
     if (auth.uid !== req.params.customerUid) {
       return res.status(403).json({ success: false, error: 'Forbidden' });
     }
-    const { name, phone, location, language, notifications } = req.body as {
+    const { name, phone, location, language, notifications, savedProviderIds } = req.body as {
       name?: string;
       phone?: string;
       location?: string;
       language?: 'en' | 'ml' | 'hi';
       notifications?: { sms?: boolean; whatsapp?: boolean; push?: boolean };
+      savedProviderIds?: string[];
     };
 
     const updates: Record<string, unknown> = {};
@@ -210,6 +445,9 @@ app.patch('/api/customers/:customerUid/profile', requireAuth(['customer']), asyn
       if (notifications.sms !== undefined) updates['settings.notifications.sms'] = Boolean(notifications.sms);
       if (notifications.whatsapp !== undefined) updates['settings.notifications.whatsapp'] = Boolean(notifications.whatsapp);
       if (notifications.push !== undefined) updates['settings.notifications.push'] = Boolean(notifications.push);
+    }
+    if (Array.isArray(savedProviderIds)) {
+      updates['settings.savedProviderIds'] = [...new Set(savedProviderIds.map((x) => String(x).trim()).filter(Boolean))];
     }
 
     if (Object.keys(updates).length === 0) {
@@ -239,6 +477,7 @@ app.patch('/api/customers/:customerUid/profile', requireAuth(['customer']), asyn
           whatsapp: Boolean(updated.settings?.notifications?.whatsapp),
           push: Boolean(updated.settings?.notifications?.push),
         },
+        savedProviderIds: (updated.settings?.savedProviderIds || []) as string[],
         updatedAt: updated.updatedAt,
       },
     });
@@ -248,12 +487,321 @@ app.patch('/api/customers/:customerUid/profile', requireAuth(['customer']), asyn
   }
 });
 
+app.get('/api/customers/:customerUid/saved-providers', requireAuth(['customer']), async (req, res) => {
+  try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.customerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const customer = await UserModel.findOne({ uid: req.params.customerUid, role: 'customer' })
+      .select('settings.savedProviderIds')
+      .lean();
+    if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+    const savedIds = (customer.settings?.savedProviderIds || []) as string[];
+    if (savedIds.length === 0) return res.json({ success: true, data: [] });
+
+    const providers = await UserModel.find({ _id: { $in: savedIds }, role: 'worker' })
+      .select('profile.name profile.location workerProfile.publicProfile.avatarUrl workerProfile.publicProfile.title')
+      .lean();
+    const providerMap = new Map(providers.map((p: any) => [String(p._id), p]));
+    const items = savedIds
+      .map((id) => providerMap.get(String(id)))
+      .filter(Boolean)
+      .map((p: any) => ({
+        id: String(p._id),
+        name: String(p?.profile?.name || 'Provider'),
+        title: String(p?.workerProfile?.publicProfile?.title || 'Local service professional'),
+        location: [p?.profile?.location?.village, p?.profile?.location?.district].filter(Boolean).join(', '),
+        avatarUrl: String(p?.workerProfile?.publicProfile?.avatarUrl || ''),
+      }));
+    return res.json({ success: true, data: items });
+  } catch (error) {
+    console.error('Fetch saved providers failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch saved providers' });
+  }
+});
+
+app.post('/api/customers/:customerUid/saved-providers/:providerId', requireAuth(['customer']), async (req, res) => {
+  try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.customerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const provider = await UserModel.findOne({ _id: req.params.providerId, role: 'worker' }).select('_id').lean();
+    if (!provider) return res.status(404).json({ success: false, error: 'Provider not found' });
+
+    const updated = await UserModel.findOneAndUpdate(
+      { uid: req.params.customerUid, role: 'customer' },
+      { $addToSet: { 'settings.savedProviderIds': String(req.params.providerId) } },
+      { new: true }
+    )
+      .select('settings.savedProviderIds')
+      .lean();
+    if (!updated) return res.status(404).json({ success: false, error: 'Customer not found' });
+    return res.json({ success: true, data: { savedProviderIds: (updated.settings?.savedProviderIds || []) as string[] } });
+  } catch (error) {
+    console.error('Save provider failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to save provider' });
+  }
+});
+
+app.delete('/api/customers/:customerUid/saved-providers/:providerId', requireAuth(['customer']), async (req, res) => {
+  try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.customerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const updated = await UserModel.findOneAndUpdate(
+      { uid: req.params.customerUid, role: 'customer' },
+      { $pull: { 'settings.savedProviderIds': String(req.params.providerId) } },
+      { new: true }
+    )
+      .select('settings.savedProviderIds')
+      .lean();
+    if (!updated) return res.status(404).json({ success: false, error: 'Customer not found' });
+    return res.json({ success: true, data: { savedProviderIds: (updated.settings?.savedProviderIds || []) as string[] } });
+  } catch (error) {
+    console.error('Unsave provider failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to remove saved provider' });
+  }
+});
+
+app.get('/api/providers/:providerUid/profile', requireAuth(['provider']), async (req, res) => {
+  try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.providerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const provider = await UserModel.findOne({ uid: req.params.providerUid, role: 'worker' })
+      .select('uid profile settings workerProfile updatedAt')
+      .lean();
+    if (!provider) return res.status(404).json({ success: false, error: 'Provider not found' });
+
+    const skills = ((provider as any)?.workerProfile?.skills || []) as Array<any>;
+    return res.json({
+      success: true,
+      data: {
+        uid: provider.uid,
+        name: provider.profile?.name || '',
+        phone: provider.profile?.phone || '',
+        location: provider.profile?.location?.district || '',
+        language: provider.settings?.language || provider.profile?.language || 'en',
+        languages:
+          ((provider as any)?.workerProfile?.publicProfile?.languages || [])?.length > 0
+            ? ((provider as any)?.workerProfile?.publicProfile?.languages || [])
+            : [provider.settings?.language || provider.profile?.language || 'en'],
+        services: skills.map((s) => String(s?.category || '')).filter(Boolean),
+        availabilityDays: [...new Set(skills.flatMap((s) => (s?.availability?.days || []) as number[]))],
+        isOnline: Boolean((provider as any)?.workerProfile?.isOnline),
+        yearsExperience: skills.length > 0 ? Math.max(...skills.map((s) => Number(s?.experienceYears || 0))) : 0,
+        hourlyRateFrom: skills.length > 0 ? Math.min(...skills.map((s) => Number(s?.hourlyRate || 0))) : 0,
+        avatarUrl: (provider as any)?.workerProfile?.publicProfile?.avatarUrl || '',
+        bannerUrl: (provider as any)?.workerProfile?.publicProfile?.bannerUrl || '',
+        title: (provider as any)?.workerProfile?.publicProfile?.title || '',
+        aboutShort: (provider as any)?.workerProfile?.publicProfile?.aboutShort || '',
+        aboutLong: (provider as any)?.workerProfile?.publicProfile?.aboutLong || '',
+        gallery: ((provider as any)?.workerProfile?.publicProfile?.gallery || []) as string[],
+        serviceHighlights: ((provider as any)?.workerProfile?.publicProfile?.serviceHighlights || []) as Array<any>,
+        updatedAt: provider.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error('Fetch provider profile failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch provider profile' });
+  }
+});
+
+app.patch('/api/providers/:providerUid/profile', requireAuth(['provider']), async (req, res) => {
+  try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.providerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    const { name, phone, location, language, languages, services, yearsExperience, hourlyRateFrom, title, aboutShort, aboutLong, gallery, serviceHighlights, availabilityDays, isOnline, avatarUrl, bannerUrl } = req.body as {
+      name?: string;
+      phone?: string;
+      location?: string;
+      language?: 'en' | 'ml' | 'hi';
+      languages?: Array<'en' | 'ml' | 'hi'>;
+      services?: string[];
+      yearsExperience?: number;
+      hourlyRateFrom?: number;
+      title?: string;
+      aboutShort?: string;
+      aboutLong?: string;
+      gallery?: string[];
+      serviceHighlights?: Array<{ name: string; description: string; icon?: string; charge?: number }>;
+      availabilityDays?: number[];
+      isOnline?: boolean;
+      avatarUrl?: string;
+      bannerUrl?: string;
+    };
+
+    const updates: Record<string, unknown> = {};
+    if (name !== undefined) updates['profile.name'] = String(name).trim();
+    if (phone !== undefined) updates['profile.phone'] = String(phone).trim();
+    if (location !== undefined) updates['profile.location.district'] = String(location).trim();
+    if (language !== undefined) {
+      updates['profile.language'] = language;
+      updates['settings.language'] = language;
+    }
+    if (Array.isArray(languages)) {
+      const cleanLanguages = [...new Set(languages.map((x) => String(x).trim()).filter((x) => ['en', 'ml', 'hi'].includes(x)))];
+      updates['workerProfile.publicProfile.languages'] = cleanLanguages;
+      if (cleanLanguages.length > 0) {
+        updates['profile.language'] = cleanLanguages[0];
+        updates['settings.language'] = cleanLanguages[0];
+      }
+    }
+    if (title !== undefined) updates['workerProfile.publicProfile.title'] = String(title).trim();
+    if (avatarUrl !== undefined) updates['workerProfile.publicProfile.avatarUrl'] = String(avatarUrl).trim();
+    if (bannerUrl !== undefined) updates['workerProfile.publicProfile.bannerUrl'] = String(bannerUrl).trim();
+    if (aboutShort !== undefined) updates['workerProfile.publicProfile.aboutShort'] = String(aboutShort).trim();
+    if (aboutLong !== undefined) updates['workerProfile.publicProfile.aboutLong'] = String(aboutLong).trim();
+    if (Array.isArray(gallery)) {
+      updates['workerProfile.publicProfile.gallery'] = gallery.map((x) => String(x).trim()).filter(Boolean);
+    }
+    if (Array.isArray(serviceHighlights)) {
+      updates['workerProfile.publicProfile.serviceHighlights'] = serviceHighlights
+        .map((s) => ({
+          name: String(s?.name || '').trim(),
+          description: String(s?.description || '').trim(),
+          icon: String(s?.icon || '').trim(),
+          charge: Math.max(0, Number(s?.charge || 0)),
+        }))
+        .filter((s) => s.name);
+    }
+    if (isOnline !== undefined) updates['workerProfile.isOnline'] = Boolean(isOnline);
+    if (Array.isArray(services)) {
+      const clean = services.map((s) => String(s).trim()).filter(Boolean);
+      const exp = Math.max(0, Number(yearsExperience || 0));
+      const chargeMap = new Map(
+        (Array.isArray(serviceHighlights) ? serviceHighlights : [])
+          .map((s) => [String(s?.name || '').trim().toLowerCase(), Math.max(0, Number(s?.charge || 0))] as const)
+      );
+      const rate = Math.max(0, Number(hourlyRateFrom || 0));
+      const days = Array.isArray(availabilityDays)
+        ? [...new Set(availabilityDays.map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))]
+        : [];
+      updates['workerProfile.skills'] = clean.map((category) => ({
+        category,
+        experienceYears: exp,
+        certifications: [],
+        hourlyRate: chargeMap.get(category.toLowerCase()) ?? rate,
+        currency: 'INR',
+        availability: { days, slots: [] },
+      }));
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ success: false, error: 'No valid profile fields provided' });
+    }
+
+    const updated = await UserModel.findOneAndUpdate(
+      { uid: req.params.providerUid, role: 'worker' },
+      { $set: updates },
+      { new: true }
+    )
+      .select('uid profile settings workerProfile updatedAt')
+      .lean();
+
+    if (!updated) return res.status(404).json({ success: false, error: 'Provider not found' });
+
+    const skills = ((updated as any)?.workerProfile?.skills || []) as Array<any>;
+    return res.json({
+      success: true,
+      data: {
+        uid: updated.uid,
+        name: updated.profile?.name || '',
+        phone: updated.profile?.phone || '',
+        location: updated.profile?.location?.district || '',
+        language: updated.settings?.language || updated.profile?.language || 'en',
+        languages:
+          ((updated as any)?.workerProfile?.publicProfile?.languages || [])?.length > 0
+            ? ((updated as any)?.workerProfile?.publicProfile?.languages || [])
+            : [updated.settings?.language || updated.profile?.language || 'en'],
+        services: skills.map((s) => String(s?.category || '')).filter(Boolean),
+        availabilityDays: [...new Set(skills.flatMap((s) => (s?.availability?.days || []) as number[]))],
+        isOnline: Boolean((updated as any)?.workerProfile?.isOnline),
+        yearsExperience: skills.length > 0 ? Math.max(...skills.map((s) => Number(s?.experienceYears || 0))) : 0,
+        hourlyRateFrom: skills.length > 0 ? Math.min(...skills.map((s) => Number(s?.hourlyRate || 0))) : 0,
+        avatarUrl: (updated as any)?.workerProfile?.publicProfile?.avatarUrl || '',
+        bannerUrl: (updated as any)?.workerProfile?.publicProfile?.bannerUrl || '',
+        title: (updated as any)?.workerProfile?.publicProfile?.title || '',
+        aboutShort: (updated as any)?.workerProfile?.publicProfile?.aboutShort || '',
+        aboutLong: (updated as any)?.workerProfile?.publicProfile?.aboutLong || '',
+        gallery: ((updated as any)?.workerProfile?.publicProfile?.gallery || []) as string[],
+        serviceHighlights: ((updated as any)?.workerProfile?.publicProfile?.serviceHighlights || []) as Array<any>,
+        updatedAt: updated.updatedAt,
+      },
+    });
+  } catch (error) {
+    console.error('Update provider profile failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to update provider profile' });
+  }
+});
+
+app.get('/api/providers/:providerId/public-profile', async (req, res) => {
+  try {
+    const provider = await UserModel.findOne({ _id: req.params.providerId, role: 'worker' })
+      .select('profile workerProfile')
+      .lean();
+    if (!provider) return res.status(404).json({ success: false, error: 'Provider not found' });
+
+    const skills = ((provider as any)?.workerProfile?.skills || []) as Array<any>;
+    const yearsExperience = skills.length > 0 ? Math.max(...skills.map((s) => Number(s?.experienceYears || 0))) : 0;
+    const hourlyRateFrom = skills.length > 0 ? Math.min(...skills.map((s) => Number(s?.hourlyRate || 0))) : 0;
+    const availabilityDays = new Set<number>();
+    skills.forEach((s) => (s?.availability?.days || []).forEach((d: number) => availabilityDays.add(d)));
+    const availabilityTags: string[] = [];
+    if ((provider as any)?.workerProfile?.isOnline) availabilityTags.push('Online now');
+    if (availabilityDays.has(new Date().getDay())) availabilityTags.push('Available today');
+    if (availabilityDays.has(0) || availabilityDays.has(6)) availabilityTags.push('Weekends');
+    if (availabilityTags.length === 0) availabilityTags.push('On request');
+
+    return res.json({
+      success: true,
+      data: {
+        id: String((provider as any)._id),
+        name: provider.profile?.name || 'Provider',
+        title: (provider as any)?.workerProfile?.publicProfile?.title || 'Local service professional',
+        location: [provider.profile?.location?.village, provider.profile?.location?.district].filter(Boolean).join(', '),
+        rating: Number((provider as any)?.workerProfile?.performance?.rating || 0),
+        yearsExperience,
+        hourlyRateFrom,
+        avatarUrl: (provider as any)?.workerProfile?.publicProfile?.avatarUrl || '',
+        bannerUrl: (provider as any)?.workerProfile?.publicProfile?.bannerUrl || '',
+        aboutShort: (provider as any)?.workerProfile?.publicProfile?.aboutShort || '',
+        aboutLong: (provider as any)?.workerProfile?.publicProfile?.aboutLong || '',
+        services: skills.map((s) => String(s?.category || '')).filter(Boolean),
+        serviceHighlights: ((provider as any)?.workerProfile?.publicProfile?.serviceHighlights || []) as Array<any>,
+        gallery: ((provider as any)?.workerProfile?.publicProfile?.gallery || []) as string[],
+        languages:
+          ((provider as any)?.workerProfile?.publicProfile?.languages || [])?.length > 0
+            ? ((provider as any)?.workerProfile?.publicProfile?.languages || [])
+            : [provider.profile?.language || 'en'],
+        availabilityTags,
+      },
+    });
+  } catch (error) {
+    console.error('Public provider profile fetch failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to load provider profile' });
+  }
+});
+
 // Provider Search Endpoint
 app.get('/api/providers/search', async (req, res) => {
   try {
+    const parsedLanguages = req.query.languages
+      ? String(req.query.languages)
+          .split(',')
+          .map((x) => x.trim().toLowerCase())
+          .filter((x) => ['en', 'ml', 'hi'].includes(x))
+      : [];
     const query: ProviderSearchQuery = {
       q: req.query.q ? String(req.query.q) : undefined,
       category: req.query.category ? String(req.query.category) : undefined,
+      languages: [...new Set(parsedLanguages)],
       minPrice: req.query.minPrice ? Number(req.query.minPrice) : undefined,
       maxPrice: req.query.maxPrice ? Number(req.query.maxPrice) : undefined,
       minRating: req.query.minRating ? Number(req.query.minRating) : undefined,
@@ -293,6 +841,17 @@ app.get('/api/providers/search', async (req, res) => {
       }
     }
 
+    if (query.languages && query.languages.length > 0) {
+      const languageClause = {
+        $or: [
+          { 'workerProfile.publicProfile.languages': { $in: query.languages } },
+          { 'settings.language': { $in: query.languages } },
+          { 'profile.language': { $in: query.languages } },
+        ],
+      };
+      mongoFilter.$and = [...((mongoFilter.$and as unknown[]) || []), languageClause];
+    }
+
     const skillElem: Record<string, unknown> = {};
     if (query.category) skillElem.category = new RegExp(query.category, 'i');
     if (query.minPrice !== undefined || query.maxPrice !== undefined) {
@@ -329,7 +888,7 @@ app.get('/api/providers/search', async (req, res) => {
     const [total, workers] = await Promise.all([
       UserModel.countDocuments(mongoFilter),
       UserModel.find(mongoFilter)
-        .select('profile.name profile.phone profile.location workerProfile.skills workerProfile.performance.rating workerProfile.isOnline')
+        .select('profile.name profile.phone profile.location profile.language settings.language workerProfile.skills workerProfile.performance.rating workerProfile.isOnline workerProfile.publicProfile.languages')
         .sort({ 'workerProfile.isOnline': -1, 'workerProfile.performance.rating': -1, updatedAt: -1 })
         .skip(skip)
         .limit(query.pageSize)
@@ -370,6 +929,10 @@ app.get('/api/providers/search', async (req, res) => {
         yearsExperience: years.length > 0 ? Math.max(...years) : 0,
         district: String(worker?.profile?.location?.district || ''),
         locality: String(worker?.profile?.location?.village || worker?.profile?.location?.taluk || ''),
+        languages:
+          ((worker?.workerProfile?.publicProfile?.languages || []) as string[]).length > 0
+            ? ((worker?.workerProfile?.publicProfile?.languages || []) as string[])
+            : [String(worker?.settings?.language || worker?.profile?.language || 'en')],
         isOnline: Boolean(worker?.workerProfile?.isOnline),
         availabilityTags: [Boolean(worker?.workerProfile?.isOnline) ? 'Online now' : '', ...availabilityTags].filter(Boolean),
       };
@@ -472,7 +1035,8 @@ app.post('/api/bookings', requireAuth(['customer']), async (req, res) => {
       scheduledAt?: string;
     };
 
-    if (!customerUid || !providerId || !serviceName) {
+    const cleanServiceName = String(serviceName || '').trim().replace(/\s+/g, ' ');
+    if (!customerUid || !providerId || !cleanServiceName) {
       return res.status(400).json({ success: false, error: 'customerUid, providerId and serviceName are required' });
     }
     if (auth.uid !== customerUid) {
@@ -485,6 +1049,12 @@ app.post('/api/bookings', requireAuth(['customer']), async (req, res) => {
     if (!provider) return res.status(404).json({ success: false, error: 'Provider not found' });
 
     const requestedStart = scheduledAt ? new Date(scheduledAt) : new Date(Date.now() + 24 * 60 * 60 * 1000);
+    if (Number.isNaN(requestedStart.getTime())) {
+      return res.status(400).json({ success: false, error: 'Invalid scheduledAt value' });
+    }
+    if (requestedStart.getTime() < Date.now() + 5 * 60 * 1000) {
+      return res.status(400).json({ success: false, error: 'Scheduled time must be in the future' });
+    }
     const bookingId = `BK-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 
     const booking = await JobModel.create({
@@ -515,7 +1085,7 @@ app.post('/api/bookings', requireAuth(['customer']), async (req, res) => {
         basePrice: 0,
         platformCommission: 0,
         finalPrice: 0,
-        breakdown: [{ item: serviceName, amount: 0 }],
+        breakdown: [{ item: cleanServiceName, amount: 0 }],
       },
       payment: {
         method: 'cod',
@@ -533,7 +1103,7 @@ app.post('/api/bookings', requireAuth(['customer']), async (req, res) => {
       recipientUid: String(provider.uid),
       recipientRole: 'provider',
       title: 'New booking request',
-      message: `${customer.profile.name} requested ${serviceName}.`,
+      message: `${customer.profile.name} requested ${cleanServiceName}.`,
       type: 'booking',
       metadata: { jobId: booking.jobId, status: booking.status },
     });
@@ -545,7 +1115,7 @@ app.post('/api/bookings', requireAuth(['customer']), async (req, res) => {
         status: booking.status,
         customerName: customer.profile.name,
         providerName: provider.profile.name,
-        serviceName,
+        serviceName: cleanServiceName,
         scheduledAt: booking.schedule.scheduledStart,
       },
     });

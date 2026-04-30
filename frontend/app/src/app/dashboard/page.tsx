@@ -7,6 +7,7 @@ import { useAuth } from '../auth-provider'
 export default function WorkerDashboardPage() {
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [bookings, setBookings] = useState<Array<{ id: string; status: string; paymentStatus: string; serviceName: string; providerName: string; scheduledAt: string }>>([])
+  const [savedProviders, setSavedProviders] = useState<Array<{ id: string; name: string; title: string; location: string; avatarUrl: string }>>([])
   const [notifications, setNotifications] = useState<Array<{ _id: string; title: string; message: string; read: boolean; createdAt: string; type: string }>>([])
   const [unreadCount, setUnreadCount] = useState(0)
   const [showNotifications, setShowNotifications] = useState(false)
@@ -29,16 +30,21 @@ export default function WorkerDashboardPage() {
       if (!customerSession?.uid || !customerSession?.token) return
       const authHeaders = { Authorization: `Bearer ${customerSession.token}` }
       try {
-        const [bookingsRes, notificationsRes] = await Promise.all([
+        const [bookingsRes, notificationsRes, savedProvidersRes] = await Promise.all([
           fetch(`http://localhost:3333/api/bookings/customer/${customerSession.uid}`, { headers: authHeaders }),
           fetch(`http://localhost:3333/api/notifications/${customerSession.uid}?role=customer&limit=25`, { headers: authHeaders }),
+          fetch(`http://localhost:3333/api/customers/${customerSession.uid}/saved-providers`, { headers: authHeaders }),
         ])
         const bookingsJson = await bookingsRes.json()
         const notificationsJson = await notificationsRes.json()
+        const savedProvidersJson = await savedProvidersRes.json()
         if (bookingsRes.ok && bookingsJson?.success) setBookings(bookingsJson.data || [])
         if (notificationsRes.ok && notificationsJson?.success) {
           setNotifications(notificationsJson.data?.items || [])
           setUnreadCount(Number(notificationsJson.data?.unreadCount || 0))
+        }
+        if (savedProvidersRes.ok && savedProvidersJson?.success) {
+          setSavedProviders(savedProvidersJson.data || [])
         }
       } catch {
         // keep dashboard usable even if booking API is unavailable
@@ -177,6 +183,11 @@ export default function WorkerDashboardPage() {
     if (filter === 'active') return !['requested', 'completed', 'cancelled'].includes(booking.status)
     return ['completed', 'cancelled'].includes(booking.status)
   })
+  const customerName = customerSession?.name?.trim() || 'Customer'
+  const recentActivity = [...bookings]
+    .filter((b) => ['completed', 'cancelled'].includes(b.status))
+    .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime())
+    .slice(0, 4)
 
   if (!isAuthorized) {
     return null
@@ -233,7 +244,7 @@ export default function WorkerDashboardPage() {
           <section>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="font-h1 text-h1 text-primary-container tracking-tight">Namaskaram, Arjun.</h1>
+                <h1 className="font-h1 text-h1 text-primary-container tracking-tight">Namaskaram, {customerName}.</h1>
                 <p className="font-body-lg text-body-lg text-on-surface-variant mt-sm">Your home is in good hands. Here's what's happening today.</p>
               </div>
               <button
@@ -359,39 +370,34 @@ export default function WorkerDashboardPage() {
                   Recent Activity
                 </h2>
                 <div className="space-y-0">
-                  {/* Activity Item 1 */}
-                  <div className="flex items-start gap-md py-sm border-b border-outline-variant/20 last:border-0 last:pb-0">
-                    <div className="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center mt-1">
-                      <span className="material-symbols-outlined text-on-surface-variant text-[20px]">electric_bolt</span>
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-body-md text-body-md font-medium text-on-background">Electrical Inspection</h4>
-                      <p className="font-caption text-caption text-on-surface-variant">Completed by Suresh K.</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-caption text-caption text-outline">Oct 12</p>
-                      <p className="font-caption text-caption text-primary font-medium mt-xs flex items-center justify-end gap-xs">
-                        <span className="material-symbols-outlined text-[14px]">check_circle</span> Done
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Activity Item 2 */}
-                  <div className="flex items-start gap-md py-sm border-b border-outline-variant/20 last:border-0 last:pb-0 pt-md">
-                    <div className="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center mt-1">
-                      <span className="material-symbols-outlined text-on-surface-variant text-[20px]">cleaning_services</span>
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="font-body-md text-body-md font-medium text-on-background">Deep Home Cleaning</h4>
-                      <p className="font-caption text-caption text-on-surface-variant">Completed by GreenSweep</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-caption text-caption text-outline">Sep 28</p>
-                      <p className="font-caption text-caption text-primary font-medium mt-xs flex items-center justify-end gap-xs">
-                        <span className="material-symbols-outlined text-[14px]">check_circle</span> Done
-                      </p>
-                    </div>
-                  </div>
+                  {recentActivity.length === 0 ? (
+                    <p className="text-sm text-on-surface-variant">No recent booking activity yet.</p>
+                  ) : (
+                    recentActivity.map((item) => (
+                      <div className="flex items-start gap-md py-sm border-b border-outline-variant/20 last:border-0 last:pb-0" key={item.id}>
+                        <div className="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center mt-1">
+                          <span className="material-symbols-outlined text-on-surface-variant text-[20px]">
+                            {item.status === 'completed' ? 'check_circle' : 'cancel'}
+                          </span>
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-body-md text-body-md font-medium text-on-background">{item.serviceName}</h4>
+                          <p className="font-caption text-caption text-on-surface-variant">
+                            {item.status === 'completed' ? 'Completed' : 'Cancelled'} with {item.providerName}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-caption text-caption text-outline">{new Date(item.scheduledAt).toLocaleDateString()}</p>
+                          <p className="font-caption text-caption text-primary font-medium mt-xs flex items-center justify-end gap-xs capitalize">
+                            <span className="material-symbols-outlined text-[14px]">
+                              {item.status === 'completed' ? 'check_circle' : 'cancel'}
+                            </span>
+                            {item.status}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </section>
             </div>
@@ -408,27 +414,22 @@ export default function WorkerDashboardPage() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-sm">
-                  {/* Provider Card 1 */}
-                  <div className="bg-surface-container-low rounded-lg p-sm border border-outline-variant/20 flex flex-col items-center text-center hover:bg-surface-container transition-colors cursor-pointer group">
-                    <img alt="Portrait of an Indian tradesman smiling" className="w-16 h-16 rounded-full object-cover mb-sm border-2 border-surface-container-lowest shadow-sm group-hover:border-primary-container/30 transition-colors" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBKM3WhnbkXAo2GS-U8M7JAaxJGwHlTDXPI5JKLOXzQ0DIrbfYvFJmD3zor3K3AZsBUiI9TCbL4NLgKej2yysDk75eBN_wZCf3eJJOFpZhlwayPxroJ67HmjIgXn-tyUWNhYc9MARvfxr1c_zfVyrYBeYuWzs5Oqoz17fzIawjrK6alW5-QxzC6aWcZyoakGeQhBvfMqEmG09LNfdk0Od-slmyrEb93o-9yib451o0xdwfpull7UZ7hy3Q_bbjJfdHBoiyOpvXU8iR-" />
-                    <h4 className="font-label-md text-label-md text-on-background font-semibold line-clamp-1">Suresh K.</h4>
-                    <p className="font-caption text-caption text-on-surface-variant mt-xs flex items-center gap-xs">
-                      <span className="material-symbols-outlined text-[14px] text-primary">star</span> 4.9
-                    </p>
-                    <p className="font-caption text-caption text-outline mt-xs">Electrician</p>
-                  </div>
+                  {savedProviders.length === 0 ? (
+                    <div className="col-span-2 rounded-lg border border-outline-variant/20 bg-surface-container-low p-sm text-center text-xs text-on-surface-variant">
+                      No saved providers yet. Save providers from their profile to see them here.
+                    </div>
+                  ) : (
+                    savedProviders.slice(0, 4).map((provider) => (
+                      <a className="bg-surface-container-low rounded-lg p-sm border border-outline-variant/20 flex flex-col items-center text-center hover:bg-surface-container transition-colors cursor-pointer group" href={`/profile?providerId=${provider.id}`} key={provider.id}>
+                        <div className="mb-sm flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border-2 border-surface-container-lowest bg-emerald-100 text-lg font-semibold text-emerald-800 shadow-sm">
+                          {provider.avatarUrl ? <img alt={provider.name} className="h-full w-full object-cover" src={provider.avatarUrl} /> : provider.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <h4 className="font-label-md text-label-md text-on-background font-semibold line-clamp-1">{provider.name}</h4>
+                        <p className="font-caption text-caption text-outline mt-xs line-clamp-1">{provider.location || provider.title}</p>
+                      </a>
+                    ))
+                  )}
 
-                  {/* Provider Card 2 */}
-                  <div className="bg-surface-container-low rounded-lg p-sm border border-outline-variant/20 flex flex-col items-center text-center hover:bg-surface-container transition-colors cursor-pointer group">
-                    <img alt="Portrait of an Indian tradesman smiling" className="w-16 h-16 rounded-full object-cover mb-sm border-2 border-surface-container-lowest shadow-sm group-hover:border-primary-container/30 transition-colors" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCCNGzes9DwatkdAQu2OVDSTTYLpJDV7fx5Qlvk3SeGcAgMvhP_3u83b7nikvw1m7dHPrtLI6GMIsrV0NrY-l0yDmHT3hDaXrHDx6iXyYftjmd6Z2RoCkD3byPcXtdVuckCj42tGUbTNdH_aBK0130f8XyWqkanF1L6muWJS0jGdlhNAWjtID68Tf6TIS6HyRL53xTqMBZdFIs86lWwMUsvQz1DH48mzCP8thr9IWQyaaJZ5qPzS2p2BwwVlY4varS4Hc9C78ucXXqD" />
-                    <h4 className="font-label-md text-label-md text-on-background font-semibold line-clamp-1">Rahul M.</h4>
-                    <p className="font-caption text-caption text-on-surface-variant mt-xs flex items-center gap-xs">
-                      <span className="material-symbols-outlined text-[14px] text-primary">star</span> 5.0
-                    </p>
-                    <p className="font-caption text-caption text-outline mt-xs">Plumber</p>
-                  </div>
-
-                  {/* Provider Card 3 */}
                   <a href="/search" className="bg-surface-container-low rounded-lg p-sm border border-outline-variant/20 flex flex-col items-center justify-center text-center hover:bg-surface-container transition-colors cursor-pointer group col-span-2">
                     <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center mb-xs text-on-surface-variant group-hover:text-primary transition-colors">
                       <span className="material-symbols-outlined">add</span>

@@ -10,7 +10,15 @@ type Mode = 'login' | 'register'
 
 function AuthPageContent() {
   const { refresh } = useAuth()
-  const [role, setRole] = useState<Role>('customer')
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const nextPath = searchParams.get('next')
+
+  const roleFromUrl = searchParams.get('role')
+  const initialRole: Role =
+    roleFromUrl === 'provider' || roleFromUrl === 'customer' ? roleFromUrl : 'customer'
+
+  const [role, setRole] = useState<Role>(initialRole)
   const [mode, setMode] = useState<Mode>('login')
   const [name, setName] = useState('')
   const [phone, setPhone] = useState('')
@@ -20,16 +28,24 @@ function AuthPageContent() {
   const [error, setError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const nextPath = searchParams.get('next')
+  const setRoleAndSyncUrl = (nextRole: Role) => {
+    setRole(nextRole)
+    const p = new URLSearchParams(searchParams.toString())
+    p.set('role', nextRole)
+    router.replace(`/auth?${p.toString()}`, { scroll: false })
+  }
 
   useEffect(() => {
     const roleFromQuery = searchParams.get('role')
+    if (roleFromQuery === 'admin') {
+      const n = searchParams.get('next')
+      router.replace(n ? `/auth/admin?next=${encodeURIComponent(n)}` : '/auth/admin')
+      return
+    }
     if (roleFromQuery === 'provider' || roleFromQuery === 'customer') {
       setRole(roleFromQuery)
     }
-  }, [searchParams])
+  }, [searchParams, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -69,7 +85,7 @@ function AuthPageContent() {
       }
 
       const loginJson = await loginUser({
-        phone: phone.trim(),
+        phone: phone.trim().replace(/\s+/g, ''),
         password: password.trim(),
         role,
       })
@@ -115,19 +131,19 @@ function AuthPageContent() {
       <div className="absolute -bottom-24 -right-20 h-72 w-72 rounded-full bg-teal-200/20 blur-3xl"></div>
       <div className="w-full max-w-md bg-white/95 backdrop-blur rounded-2xl border border-white/70 p-6 shadow-2xl relative z-10">
         <h1 className="font-h2 text-h2 text-emerald-900 mb-2">Login to Workmate</h1>
-        <p className="text-stone-600 mb-6">Choose role and continue to your dashboard.</p>
+        <p className="text-stone-600 mb-6">Sign in or register as a customer or provider.</p>
 
         <div className="flex gap-2 mb-3 p-1 bg-emerald-50 rounded-xl">
           <button
             className={`flex-1 rounded-lg py-2 font-label-md transition-colors ${role === 'customer' ? 'bg-gradient-to-r from-emerald-700 to-emerald-500 text-white shadow-sm' : 'text-stone-700'}`}
-            onClick={() => setRole('customer')}
+            onClick={() => setRoleAndSyncUrl('customer')}
             type="button"
           >
             Customer
           </button>
           <button
             className={`flex-1 rounded-lg py-2 font-label-md transition-colors ${role === 'provider' ? 'bg-gradient-to-r from-emerald-700 to-emerald-500 text-white shadow-sm' : 'text-stone-700'}`}
-            onClick={() => setRole('provider')}
+            onClick={() => setRoleAndSyncUrl('provider')}
             type="button"
           >
             Provider

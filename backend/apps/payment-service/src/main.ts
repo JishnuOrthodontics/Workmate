@@ -16,6 +16,7 @@ const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/d4dent';
 const phonePeSaltKey = process.env.PHONEPE_SALT_KEY || 'phonepe-sandbox-key';
 const phonePeSaltIndex = process.env.PHONEPE_SALT_INDEX || '1';
 const phonePeMerchantId = process.env.PHONEPE_MERCHANT_ID || 'PGTESTPAYUAT';
+const phonePeMockCheckoutBaseUrl = process.env.PHONEPE_MOCK_CHECKOUT_BASE_URL || 'http://localhost:3003';
 const payoutWindowDays = Number(process.env.PAYOUT_WINDOW_DAYS || 7);
 const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'workmate-internal-dev-token';
 
@@ -63,6 +64,75 @@ function phonePeChecksum(base64Payload: string, endpointPath: string) {
   return `${digest}###${phonePeSaltIndex}`;
 }
 
+function buildMockCheckoutUrl(transactionId: string) {
+  return `${phonePeMockCheckoutBaseUrl}/phonepe/mock-checkout/${encodeURIComponent(transactionId)}`;
+}
+
+function mockCheckoutHtml(params: { transactionId: string; jobId: string; amount: number }) {
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PhonePe Sandbox Mock Checkout</title>
+    <style>
+      body { font-family: Arial, sans-serif; background: #f6faf7; padding: 24px; color: #143d2a; }
+      .card { max-width: 520px; margin: 0 auto; background: #fff; border: 1px solid #d2efe0; border-radius: 14px; padding: 20px; }
+      h1 { margin: 0 0 10px; font-size: 22px; }
+      p { margin: 6px 0; color: #355e4a; }
+      .row { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+      a.btn { text-decoration: none; padding: 10px 14px; border-radius: 10px; font-weight: 700; border: 1px solid #b9dfca; }
+      a.ok { background: #0f9d58; color: #fff; border-color: #0f9d58; }
+      a.fail { background: #fff; color: #a32626; border-color: #e4b8b8; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>PhonePe Sandbox Mock Checkout</h1>
+      <p><strong>Transaction:</strong> ${params.transactionId}</p>
+      <p><strong>Booking:</strong> ${params.jobId}</p>
+      <p><strong>Amount:</strong> ₹${Math.round(params.amount)}</p>
+      <div class="row">
+        <a class="btn ok" href="/phonepe/mock-checkout/${encodeURIComponent(params.transactionId)}/complete">Mark Payment Success</a>
+        <a class="btn fail" href="/phonepe/mock-checkout/${encodeURIComponent(params.transactionId)}/fail">Mark Payment Failed</a>
+      </div>
+    </div>
+  </body>
+</html>`;
+}
+
+app.get('/phonepe/mock-checkout/:transactionId', async (req, res) => {
+  const transactionId = String(req.params.transactionId || '');
+  const job = await JobModel.findOne({ 'payment.transactionId': transactionId }).lean();
+  if (!job) return res.status(404).send('Payment transaction not found');
+  return res.status(200).send(
+    mockCheckoutHtml({
+      transactionId,
+      jobId: String(job.jobId),
+      amount: Number(job.pricing?.finalPrice || 0),
+    })
+  );
+});
+
+app.get('/phonepe/mock-checkout/:transactionId/complete', async (req, res) => {
+  const transactionId = String(req.params.transactionId || '');
+  const job = await JobModel.findOne({ 'payment.transactionId': transactionId });
+  if (!job) return res.status(404).send('Payment transaction not found');
+  job.payment.status = 'captured';
+  job.payment.paidAt = new Date();
+  await job.save();
+  return res.send('<h2 style="font-family: Arial; color:#0f9d58">Payment marked successful. You can close this tab and return to app.</h2>');
+});
+
+app.get('/phonepe/mock-checkout/:transactionId/fail', async (req, res) => {
+  const transactionId = String(req.params.transactionId || '');
+  const job = await JobModel.findOne({ 'payment.transactionId': transactionId });
+  if (!job) return res.status(404).send('Payment transaction not found');
+  job.payment.status = 'pending';
+  await job.save();
+  return res.send('<h2 style="font-family: Arial; color:#b42318">Payment marked failed. You can close this tab and retry from app.</h2>');
+});
+
 app.post('/api/payments/phonepe/create', async (req, res) => {
   try {
     const { jobId, idempotencyKey } = req.body as { jobId?: string; idempotencyKey?: string };
@@ -76,7 +146,7 @@ app.post('/api/payments/phonepe/create', async (req, res) => {
     }
 
     if (idempotencyKey && job.payment.transactionId?.includes(idempotencyKey)) {
-      return res.json({ success: true, data: { transactionId: job.payment.transactionId, status: job.payment.status, paymentUrl: `https://api-preprod.phonepe.com/sandbox/checkout/${job.payment.transactionId}` } });
+      return res.json({ success: true, data: { transactionId: job.payment.transactionId, status: job.payment.status, paymentUrl: buildMockCheckoutUrl(String(job.payment.transactionId)) } });
     }
 
     const merchantTransactionId = `PHN-${Date.now()}-${Math.floor(Math.random() * 1000)}${idempotencyKey ? `-${idempotencyKey}` : ''}`;
@@ -104,7 +174,7 @@ app.post('/api/payments/phonepe/create', async (req, res) => {
         transactionId: merchantTransactionId,
         status: 'authorized',
         phonePe: { payload: base64Payload, checksum, endpoint: '/pg/v1/pay' },
-        paymentUrl: `https://api-preprod.phonepe.com/sandbox/checkout/${merchantTransactionId}`,
+        paymentUrl: buildMockCheckoutUrl(merchantTransactionId),
       },
     });
   } catch (error) {

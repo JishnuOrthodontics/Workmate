@@ -8,6 +8,15 @@ export default function Home() {
   const [query, setQuery] = useState('')
   const router = useRouter()
   const { ready, activeRole } = useAuth()
+  const dashboardHref = ready
+    ? activeRole === 'admin'
+      ? '/admin/dashboard'
+      : activeRole === 'provider'
+      ? '/provider/dashboard'
+      : activeRole === 'customer'
+      ? '/dashboard'
+      : '/auth'
+    : '/auth'
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
@@ -32,7 +41,7 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-4">
             <button className="text-stone-600 font-medium hover:text-emerald-700 transition-colors font-body-md text-body-md hidden md:block">Language</button>
-            <a className="bg-gradient-to-r from-emerald-700 to-emerald-500 text-white px-4 py-2 rounded-xl font-medium shadow-lg hover:shadow-emerald-200 transition-all font-label-md text-label-md" href={ready && activeRole === 'provider' ? '/provider/dashboard' : ready && activeRole === 'customer' ? '/dashboard' : '/auth'}>{ready && activeRole ? 'Dashboard' : 'Login'}</a>
+            <a className="bg-gradient-to-r from-emerald-700 to-emerald-500 text-white px-4 py-2 rounded-xl font-medium shadow-lg hover:shadow-emerald-200 transition-all font-label-md text-label-md" href={dashboardHref}>{ready && activeRole ? 'Dashboard' : 'Login'}</a>
           </div>
         </div>
       </header>
@@ -66,7 +75,7 @@ export default function Home() {
                 <a className="bg-white/10 border border-white/30 text-white px-5 py-2 rounded-xl font-label-md hover:bg-white/20 transition-colors" href="/search">
                   Search Providers
                 </a>
-                <a className="bg-white text-emerald-700 px-5 py-2 rounded-xl font-label-md hover:bg-emerald-50 transition-colors" href={ready && activeRole === 'provider' ? '/provider/dashboard' : ready && activeRole === 'customer' ? '/dashboard' : '/auth'}>
+                <a className="bg-white text-emerald-700 px-5 py-2 rounded-xl font-label-md hover:bg-emerald-50 transition-colors" href={dashboardHref}>
                   {ready && activeRole ? 'Go to Dashboard' : 'Login to Continue'}
                 </a>
               </div>
@@ -225,7 +234,7 @@ export default function Home() {
               <a className="bg-white text-emerald-700 px-5 py-2 rounded-xl font-label-md hover:bg-emerald-50 transition-colors" href="/search">
                 Start Searching
               </a>
-              <a className="bg-white/10 border border-white/30 px-5 py-2 rounded-xl font-label-md hover:bg-white/20 transition-colors" href={ready && activeRole === 'provider' ? '/provider/dashboard' : ready && activeRole === 'customer' ? '/dashboard' : '/auth'}>
+              <a className="bg-white/10 border border-white/30 px-5 py-2 rounded-xl font-label-md hover:bg-white/20 transition-colors" href={dashboardHref}>
                 {ready && activeRole ? 'Open Dashboard' : 'Login / Register'}
               </a>
             </div>
@@ -244,7 +253,17 @@ export default function Home() {
             <a className="text-stone-600 dark:text-stone-400 hover:text-[#5C4033] dark:hover:text-stone-200 font-['Inter'] text-sm" href="#">Terms of Service</a>
             <a className="text-stone-600 dark:text-stone-400 hover:text-[#5C4033] dark:hover:text-stone-200 font-['Inter'] text-sm" href="#">Service Partners</a>
           </nav>
-          <div className="text-stone-600 dark:text-stone-400 font-['Inter'] text-sm">© 2024 Workmate Kerala • Customer support available across Kerala.</div>
+          <div className="flex flex-col items-center md:items-end gap-2 text-center md:text-right">
+            <div className="text-stone-600 dark:text-stone-400 font-['Inter'] text-sm">
+              © 2024 Workmate Kerala • Customer support available across Kerala.
+            </div>
+            <a
+              className="text-[11px] text-stone-400 hover:text-stone-500 dark:text-stone-600 dark:hover:text-stone-500 font-['Inter'] transition-colors"
+              href="/auth/admin"
+            >
+              Staff sign-in
+            </a>
+          </div>
         </div>
       </footer>
 

@@ -10,8 +10,14 @@
 
 - **Responsive UI** with Tailwind-style theming, Material Symbols, and Inter typography (`frontend/app`).
 - **Dual-role product**: same deployment serves **customers** and **service providers** with separate sessions.
-- **Session model**: customer and provider sessions live in **browser `localStorage`** (`workmate_customer_auth`, `workmate_provider_auth`) with JWT from auth; `AuthProvider` exposes `customerSession`, `providerSession`, and `activeRole` (provider wins if both exist).
+- **Session model**: customer, provider, and **admin** sessions live in **browser `localStorage`** (`workmate_customer_auth`, `workmate_provider_auth`, `workmate_admin_auth`) with JWT from auth; `AuthProvider` exposes `customerSession`, `providerSession`, `adminSession`, and `activeRole` (**admin** takes precedence when present, then provider, then customer).
 - **Post-login redirects**: `/auth` supports `?next=` so flows like “book this provider” return after login.
+
+### Admin (operations)
+
+- **Staff login**: **`/auth/admin`** — separate, minimal sign-in (not shown on the main customer/provider **`/auth`** page). The homepage footer includes a discreet **Staff sign-in** link.
+- **Admin dashboard**: **`/admin/dashboard`** — tabbed UI (overview, customers, providers, bookings, reports, settings) backed by **`GET /api/admin/*`** on the gateway (JWT role **`admin`**).
+- **Seeded dev admin** (auth-service): on startup in non-production, the default admin password is synced from env; defaults are **`ADMIN_PHONE=9999999999`**, **`ADMIN_PASSWORD=admin123`** unless overridden (see Environment variables).
 
 ### Customer
 
@@ -54,7 +60,7 @@ Persisted notifications and **GET/PATCH** APIs on the gateway. Typical triggers:
 
 | Piece | Role | Default URL / port (local) |
 | --- | --- | --- |
-| **Next.js app** | UI, client-side API calls, auth session storage | `http://localhost:3000` |
+| **Next.js app** | UI, client-side API calls, auth session storage | `http://localhost:3000` (`/auth`, `/auth/admin`, `/admin/dashboard`, …) |
 | **API gateway** | Bookings, search, profiles, availability, notifications; **proxies** payment/payout HTTP to payment-service | `http://localhost:3333` |
 | **Auth service** | Register/login, JWT issuance | `http://localhost:3334` |
 | **Payment service** | PhonePe create + webhook, escrow/job payment fields, payout batches, writes payment-related notifications | `http://localhost:3003` |
@@ -93,7 +99,7 @@ flowchart LR
 ### Typical request paths
 
 - **Auth-only**: browser → **auth service** (`NEXT_PUBLIC_AUTH_API_URL`, default `http://localhost:3334`) for `POST /api/auth/register` and `POST /api/auth/login`.
-- **Domain data**: browser → **API gateway** (`NEXT_PUBLIC_API_URL`, default `http://localhost:3333`) for providers, customers, jobs, notifications.
+- **Domain data**: browser → **API gateway** (`NEXT_PUBLIC_API_URL`, default `http://localhost:3333`) for providers, customers, jobs, notifications, and **admin metrics** (`/api/admin/*`) when logged in as admin.
 - **Payments/payouts from UI**: browser → **gateway** (`/api/payments/*`, `/api/payouts/*`) → **payment service** (server-side proxy preserves one public API surface).
 
 ### Booking & payment flow (high level)
@@ -172,6 +178,7 @@ Optional smoke test (Git Bash / macOS / Linux): `./test-local.sh`
 
 ### API gateway (`:3333`)
 
+- `GET /api/admin/overview` · `GET /api/admin/customers` · `GET /api/admin/providers` · `GET /api/admin/bookings` · `GET /api/admin/reports` — **require JWT role `admin`**
 - `GET /api/providers/search` — includes `isOnline`; online providers rank higher; **available today** can match online providers.
 - `GET /api/providers/:providerUid/availability`
 - `PATCH /api/providers/:providerUid/availability` — body `{ "isOnline": true|false }`
@@ -226,6 +233,7 @@ Copy `.env.local.example` and adjust.
 | Internal service auth | `INTERNAL_SERVICE_TOKEN` (same value in gateway and payment-service) |
 | PhonePe sandbox | `PHONEPE_MERCHANT_ID`, `PHONEPE_SALT_KEY`, `PHONEPE_SALT_INDEX`, `PAYMENT_CALLBACK_BASE_URL` |
 | Frontend | `NEXT_PUBLIC_API_URL` (default `http://localhost:3333`), `NEXT_PUBLIC_AUTH_API_URL` (default `http://localhost:3334`) |
+| Auth / admin seed | `ADMIN_PHONE`, `ADMIN_PASSWORD`, `ADMIN_NAME` (auth-service; optional overrides for seeded admin) |
 
 Most `/api/*` routes on gateway now require `Authorization: Bearer <jwt>` except public search/health and payment webhook relay.
 

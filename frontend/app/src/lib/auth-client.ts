@@ -1,4 +1,4 @@
-export type AuthRole = 'customer' | 'provider'
+export type AuthRole = 'customer' | 'provider' | 'admin'
 
 export type SessionUser = {
   isAuthenticated: boolean;
@@ -14,9 +14,12 @@ const AUTH_API_BASE = process.env.NEXT_PUBLIC_AUTH_API_URL || 'http://localhost:
 
 const CUSTOMER_KEY = 'workmate_customer_auth';
 const PROVIDER_KEY = 'workmate_provider_auth';
+const ADMIN_KEY = 'workmate_admin_auth';
 
 export function getSessionKey(role: AuthRole) {
-  return role === 'customer' ? CUSTOMER_KEY : PROVIDER_KEY;
+  if (role === 'customer') return CUSTOMER_KEY;
+  if (role === 'provider') return PROVIDER_KEY;
+  return ADMIN_KEY;
 }
 
 export function getSession(role: AuthRole): SessionUser | null {
@@ -40,6 +43,7 @@ export function clearSession(role: AuthRole) {
 export function clearAllSessions() {
   localStorage.removeItem(CUSTOMER_KEY);
   localStorage.removeItem(PROVIDER_KEY);
+  localStorage.removeItem(ADMIN_KEY);
 }
 
 export async function registerUser(payload: {

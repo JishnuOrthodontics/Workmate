@@ -69,6 +69,21 @@ export interface IWorkerProfile {
     responseTime: number;
     onTimeRate: number;
   };
+  publicProfile?: {
+    avatarUrl?: string;
+    bannerUrl?: string;
+    languages?: string[];
+    title?: string;
+    aboutShort?: string;
+    aboutLong?: string;
+    gallery?: string[];
+    serviceHighlights?: Array<{
+      name: string;
+      description: string;
+      icon?: string;
+      charge?: number;
+    }>;
+  };
 }
 
 export interface INRIProfile {
@@ -96,6 +111,7 @@ export interface IUser {
     };
     language: string;
     voiceMode: boolean;
+    savedProviderIds?: string[];
   };
   nriProfile?: INRIProfile;
   workerProfile?: IWorkerProfile;
@@ -177,6 +193,21 @@ const WorkerProfileSchema = new Schema<IWorkerProfile>({
     cancellationRate: { type: Number, default: 0 },
     responseTime: Number,
     onTimeRate: Number
+  },
+  publicProfile: {
+    avatarUrl: String,
+    bannerUrl: String,
+    languages: [String],
+    title: String,
+    aboutShort: String,
+    aboutLong: String,
+    gallery: [String],
+    serviceHighlights: [{
+      name: String,
+      description: String,
+      icon: String,
+      charge: Number
+    }]
   }
 });
 
@@ -203,7 +234,8 @@ const UserSchema = new Schema<IUser>({
       push: { type: Boolean, default: true }
     },
     language: { type: String, default: 'ml' },
-    voiceMode: { type: Boolean, default: true }
+    voiceMode: { type: Boolean, default: true },
+    savedProviderIds: { type: [String], default: [] }
   },
   nriProfile: NRProfileSchema,
   workerProfile: WorkerProfileSchema,

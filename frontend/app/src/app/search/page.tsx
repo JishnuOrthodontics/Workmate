@@ -15,24 +15,50 @@ type ProviderItem = {
   yearsExperience: number;
   district: string;
   locality: string;
+  languages: Array<'en' | 'ml' | 'hi'>;
   isOnline: boolean;
   availabilityTags: string[];
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333';
 const categories = ['Plumbing', 'Electrical', 'Carpentry'];
+const languageOptions: Array<{ code: 'en' | 'ml' | 'hi'; label: string }> = [
+  { code: 'en', label: 'English' },
+  { code: 'ml', label: 'Malayalam' },
+  { code: 'hi', label: 'Hindi' },
+];
+const LANGUAGE_LABELS: Record<'en' | 'ml' | 'hi', string> = {
+  en: 'English',
+  ml: 'Malayalam',
+  hi: 'Hindi',
+}
 
 function SearchPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { ready, activeRole } = useAuth();
+  const dashboardHref = ready
+    ? activeRole === 'admin'
+      ? '/admin/dashboard'
+      : activeRole === 'provider'
+      ? '/provider/dashboard'
+      : activeRole === 'customer'
+      ? '/dashboard'
+      : '/auth?role=customer'
+    : '/auth?role=customer';
 
   const [query, setQuery] = useState(searchParams.get('q') || '');
   const [location, setLocation] = useState(searchParams.get('location') || '');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
+  const [selectedLanguages, setSelectedLanguages] = useState<Array<'en' | 'ml' | 'hi'>>(
+    (searchParams.get('languages') || '')
+      .split(',')
+      .map((x) => x.trim().toLowerCase())
+      .filter((x): x is 'en' | 'ml' | 'hi' => ['en', 'ml', 'hi'].includes(x))
+  );
   const [minPrice, setMinPrice] = useState(searchParams.get('minPrice') || '');
   const [maxPrice, setMaxPrice] = useState(searchParams.get('maxPrice') || '');
-  const [minRating, setMinRating] = useState(searchParams.get('minRating') || '4');
+  const [minRating, setMinRating] = useState(searchParams.get('minRating') || '');
   const [availableToday, setAvailableToday] = useState(searchParams.get('availableToday') === 'true');
   const [weekends, setWeekends] = useState(searchParams.get('weekends') === 'true');
   const [page, setPage] = useState(Number(searchParams.get('page') || '1'));
@@ -48,6 +74,7 @@ function SearchPageContent() {
     if (query.trim()) params.set('q', query.trim());
     if (location.trim()) params.set('location', location.trim());
     if (selectedCategory) params.set('category', selectedCategory);
+    if (selectedLanguages.length > 0) params.set('languages', selectedLanguages.join(','));
     if (minPrice) params.set('minPrice', minPrice);
     if (maxPrice) params.set('maxPrice', maxPrice);
     if (minRating) params.set('minRating', minRating);
@@ -56,7 +83,7 @@ function SearchPageContent() {
     params.set('page', String(page));
     params.set('pageSize', '12');
     return params.toString();
-  }, [query, location, selectedCategory, minPrice, maxPrice, minRating, availableToday, weekends, page]);
+  }, [query, location, selectedCategory, selectedLanguages, minPrice, maxPrice, minRating, availableToday, weekends, page]);
 
   useEffect(() => {
     router.replace(`/search?${paramsString}`);
@@ -90,9 +117,10 @@ function SearchPageContent() {
     setQuery('');
     setLocation('');
     setSelectedCategory('');
+    setSelectedLanguages([]);
     setMinPrice('');
     setMaxPrice('');
-    setMinRating('4');
+    setMinRating('');
     setAvailableToday(false);
     setWeekends(false);
     setPage(1);
@@ -128,7 +156,7 @@ function SearchPageContent() {
             <button className="text-stone-600 font-medium hover:text-emerald-700 transition-colors hidden sm:block">Language</button>
             <a
               className="bg-gradient-to-r from-emerald-700 to-emerald-500 text-white px-4 py-2 rounded-xl font-label-md font-medium hover:opacity-95 shadow-lg transition-opacity"
-              href={ready && activeRole === 'provider' ? '/provider/dashboard' : ready && activeRole === 'customer' ? '/dashboard' : '/auth?role=customer'}
+              href={dashboardHref}
             >
               {ready && activeRole ? 'My Dashboard' : 'Login'}
             </a>
@@ -175,6 +203,31 @@ function SearchPageContent() {
             <div className="h-px w-full bg-[#5C4033]/10 mb-6"></div>
 
             <div className="mb-6">
+              <h3 className="font-label-md text-label-md font-bold text-on-surface mb-3 uppercase tracking-wider text-xs">Language</h3>
+              <div className="space-y-2">
+                {languageOptions.map((language) => (
+                  <label className="flex items-center gap-3 cursor-pointer group" key={language.code}>
+                    <input
+                      className="w-4 h-4 rounded border-outline-variant text-primary-container focus:ring-primary-container bg-surface-container"
+                      type="checkbox"
+                      checked={selectedLanguages.includes(language.code)}
+                      onChange={() => {
+                        setSelectedLanguages((prev) =>
+                          prev.includes(language.code)
+                            ? prev.filter((x) => x !== language.code)
+                            : [...prev, language.code]
+                        );
+                        setPage(1);
+                      }}
+                    />
+                    <span className="font-body-md text-body-md text-on-surface-variant group-hover:text-on-surface transition-colors">{language.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="h-px w-full bg-[#5C4033]/10 mb-6"></div>
+
+            <div className="mb-6">
               <h3 className="font-label-md text-label-md font-bold text-on-surface mb-3 uppercase tracking-wider text-xs">Price Range (₹)</h3>
               <div className="flex items-center gap-2">
                 <input className="w-full h-10 rounded-md border-outline-variant bg-surface-container-high text-sm px-3 focus:ring-1 focus:ring-primary-container focus:border-primary-container outline-none" placeholder="Min" type="number" value={minPrice} onChange={(e) => { setMinPrice(e.target.value); setPage(1); }} />
@@ -187,6 +240,19 @@ function SearchPageContent() {
             <div className="mb-6">
               <h3 className="font-label-md text-label-md font-bold text-on-surface mb-3 uppercase tracking-wider text-xs">Minimum Rating</h3>
               <div className="space-y-2">
+                <label className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    className="w-4 h-4 text-primary-container focus:ring-primary-container border-outline-variant bg-surface-container"
+                    name="rating"
+                    type="radio"
+                    checked={minRating === ''}
+                    onChange={() => {
+                      setMinRating('');
+                      setPage(1);
+                    }}
+                  />
+                  <span className="font-body-md text-body-md text-on-surface-variant group-hover:text-on-surface transition-colors">Any rating</span>
+                </label>
                 {[4.5, 4.0].map((rating) => (
                   <label className="flex items-center gap-3 cursor-pointer group" key={rating}>
                     <input
@@ -255,6 +321,15 @@ function SearchPageContent() {
                   <div className="mb-4 flex-1">
                     <h3 className="font-h3 text-h3 text-on-surface text-lg mb-1 group-hover:text-primary-container transition-colors">{provider.name}</h3>
                     <p className="font-body-md text-body-md text-on-surface-variant text-sm mb-2">{provider.category} • {provider.locality || provider.district}</p>
+                    {provider.languages?.length > 0 ? (
+                      <div className="mb-2 flex flex-wrap gap-1.5">
+                        {provider.languages.slice(0, 3).map((code) => (
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800" key={`${provider.id}-${code}`}>
+                            {LANGUAGE_LABELS[code] || code.toUpperCase()}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
                     {provider.isOnline ? <p className="text-[11px] font-semibold text-emerald-700 mb-1">Online now</p> : null}
                     <p className="font-caption text-caption text-on-surface-variant mb-3">{provider.availabilityTags.join(' • ')}</p>
                     <div className="flex items-center gap-4 text-sm">
@@ -304,7 +379,7 @@ function SearchPageContent() {
           <span className="material-symbols-outlined mb-1" style={{ fontVariationSettings: "'FILL' 1" }}>search</span>
           <span>Search</span>
         </a>
-        <a className="flex flex-col items-center justify-center text-stone-500 active:bg-stone-100 p-2 rounded-lg cursor-pointer" href={ready && activeRole ? '/dashboard' : '/auth?role=customer'}>
+        <a className="flex flex-col items-center justify-center text-stone-500 active:bg-stone-100 p-2 rounded-lg cursor-pointer" href={ready && activeRole ? dashboardHref : '/auth?role=customer'}>
           <span className="material-symbols-outlined mb-1">event_note</span>
           <span>{ready && activeRole ? 'Dashboard' : 'Bookings'}</span>
         </a>
