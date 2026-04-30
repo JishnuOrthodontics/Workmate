@@ -29,13 +29,14 @@ export default function ProviderDashboardPage() {
 
   useEffect(() => {
     const run = async () => {
-      if (!providerSession?.uid) return
+      if (!providerSession?.uid || !providerSession?.token) return
+      const authHeaders = { Authorization: `Bearer ${providerSession.token}` }
       try {
         const [bookingsRes, summaryRes, historyRes, notificationsRes] = await Promise.all([
-          fetch(`http://localhost:3333/api/bookings/provider/${providerSession.uid}`),
-          fetch(`http://localhost:3333/api/payouts/provider/${providerSession.uid}/summary`),
-          fetch(`http://localhost:3333/api/payouts/provider/${providerSession.uid}`),
-          fetch(`http://localhost:3333/api/notifications/${providerSession.uid}?role=provider&limit=25`),
+          fetch(`http://localhost:3333/api/bookings/provider/${providerSession.uid}`, { headers: authHeaders }),
+          fetch(`http://localhost:3333/api/payouts/provider/${providerSession.uid}/summary`, { headers: authHeaders }),
+          fetch(`http://localhost:3333/api/payouts/provider/${providerSession.uid}`, { headers: authHeaders }),
+          fetch(`http://localhost:3333/api/notifications/${providerSession.uid}?role=provider&limit=25`, { headers: authHeaders }),
         ])
         const bookingsJson = await bookingsRes.json()
         const summaryJson = await summaryRes.json()
@@ -48,7 +49,7 @@ export default function ProviderDashboardPage() {
           setNotifications(notificationsJson.data?.items || [])
           setUnreadCount(Number(notificationsJson.data?.unreadCount || 0))
         }
-        const availabilityRes = await fetch(`http://localhost:3333/api/providers/${providerSession.uid}/availability`)
+        const availabilityRes = await fetch(`http://localhost:3333/api/providers/${providerSession.uid}/availability`, { headers: authHeaders })
         const availabilityJson = await availabilityRes.json()
         if (availabilityRes.ok && availabilityJson?.success) setIsOnline(Boolean(availabilityJson.data?.isOnline))
       } catch {
@@ -56,11 +57,15 @@ export default function ProviderDashboardPage() {
       }
     }
     run()
-  }, [providerSession?.uid])
+  }, [providerSession?.uid, providerSession?.token])
 
   const markNotificationRead = async (notificationId: string) => {
     try {
-      const res = await fetch(`http://localhost:3333/api/notifications/${notificationId}/read`, { method: 'PATCH' })
+      if (!providerSession?.token) return
+      const res = await fetch(`http://localhost:3333/api/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${providerSession.token}` },
+      })
       const json = await res.json()
       if (!res.ok || !json?.success) return
       setNotifications((prev) => prev.map((n) => (n._id === notificationId ? { ...n, read: true } : n)))
@@ -72,9 +77,10 @@ export default function ProviderDashboardPage() {
 
   const handleStatusUpdate = async (jobId: string, status: 'accepted' | 'cancelled' | 'in_progress' | 'completed') => {
     try {
+      if (!providerSession?.token) return
       await fetch(`http://localhost:3333/api/bookings/${jobId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${providerSession.token}` },
         body: JSON.stringify({ status }),
       })
       setIncomingBookings((prev) => prev.map((b) => (b.id === jobId ? { ...b, status } : b)))
@@ -100,9 +106,10 @@ export default function ProviderDashboardPage() {
     try {
       setUpdatingOnline(true)
       const next = !isOnline
+      if (!providerSession?.token) return
       const res = await fetch(`http://localhost:3333/api/providers/${providerSession.uid}/availability`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${providerSession.token}` },
         body: JSON.stringify({ isOnline: next }),
       })
       const json = await res.json()

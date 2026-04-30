@@ -223,8 +223,11 @@ Copy `.env.local.example` and adjust.
 | Area | Variables |
 | --- | --- |
 | API / DB | `MONGODB_URI`; gateway: `PAYMENT_SERVICE_URL` (Docker: `http://payment-service:3003`) |
+| Internal service auth | `INTERNAL_SERVICE_TOKEN` (same value in gateway and payment-service) |
 | PhonePe sandbox | `PHONEPE_MERCHANT_ID`, `PHONEPE_SALT_KEY`, `PHONEPE_SALT_INDEX`, `PAYMENT_CALLBACK_BASE_URL` |
 | Frontend | `NEXT_PUBLIC_API_URL` (default `http://localhost:3333`), `NEXT_PUBLIC_AUTH_API_URL` (default `http://localhost:3334`) |
+
+Most `/api/*` routes on gateway now require `Authorization: Bearer <jwt>` except public search/health and payment webhook relay.
 
 After changing gateway or payment code, rebuild:
 

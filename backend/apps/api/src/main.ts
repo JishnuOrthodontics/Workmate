@@ -1,5 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
 import { UserModel } from '../../../libs/data-access/src/lib/user.model';
 import { JobModel } from '../../../libs/data-access/src/lib/jobs.model';
 import { NotificationModel } from '../../../libs/data-access/src/lib/notification.model';
@@ -8,6 +9,8 @@ const host = process.env.HOST ?? 'localhost';
 const port = process.env.PORT ? Number(process.env.PORT) : 3333;
 const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/d4dent';
 const paymentServiceBaseUrl = process.env.PAYMENT_SERVICE_URL || 'http://localhost:3003';
+const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me';
+const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'workmate-internal-dev-token';
 
 const app = express();
 
@@ -48,14 +51,57 @@ type ProviderSearchResponse = {
 };
 
 type BookingStatus = 'requested' | 'accepted' | 'in_progress' | 'completed' | 'cancelled';
+type AuthRole = 'customer' | 'provider';
+type AuthClaims = { uid: string; role: AuthRole };
 
 async function proxyPaymentService<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${paymentServiceBaseUrl}${path}`, init);
+  const existingHeaders = (init?.headers || {}) as Record<string, string>;
+  const response = await fetch(`${paymentServiceBaseUrl}${path}`, {
+    ...init,
+    headers: {
+      ...existingHeaders,
+      'x-internal-service-token': internalServiceToken,
+    },
+  });
   const json = (await response.json()) as T;
   if (!response.ok) {
     throw new Error((json as any)?.error || `Payment service request failed (${response.status})`);
   }
   return json;
+}
+
+function extractToken(req: express.Request): string | null {
+  const header = String(req.headers.authorization || '');
+  if (!header.startsWith('Bearer ')) return null;
+  return header.slice(7).trim();
+}
+
+function verifyToken(req: express.Request): AuthClaims | null {
+  const token = extractToken(req);
+  if (!token) return null;
+  try {
+    const decoded = jwt.verify(token, jwtSecret) as AuthClaims;
+    if (!decoded?.uid || !decoded?.role) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
+}
+
+function requireAuth(roles?: AuthRole[]) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const claims = verifyToken(req);
+    if (!claims) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    if (roles && !roles.includes(claims.role)) return res.status(403).json({ success: false, error: 'Forbidden' });
+    (req as any).auth = claims;
+    return next();
+  };
+}
+
+async function resolveUserByUid(uid: string, role: AuthRole) {
+  return UserModel.findOne({ uid, role: role === 'provider' ? 'worker' : 'customer' })
+    .select('_id uid role')
+    .lean();
 }
 
 async function createNotification(input: {
@@ -84,7 +130,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
   if (req.method === 'OPTIONS') {
     res.sendStatus(200);
   } else {
@@ -105,8 +151,12 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.get('/api/customers/:customerUid/profile', async (req, res) => {
+app.get('/api/customers/:customerUid/profile', requireAuth(['customer']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.customerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const customer = await UserModel.findOne({ uid: req.params.customerUid, role: 'customer' })
       .select('uid profile settings updatedAt')
       .lean();
@@ -134,8 +184,12 @@ app.get('/api/customers/:customerUid/profile', async (req, res) => {
   }
 });
 
-app.patch('/api/customers/:customerUid/profile', async (req, res) => {
+app.patch('/api/customers/:customerUid/profile', requireAuth(['customer']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.customerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const { name, phone, location, language, notifications } = req.body as {
       name?: string;
       phone?: string;
@@ -340,8 +394,12 @@ app.get('/api/providers/search', async (req, res) => {
   }
 });
 
-app.get('/api/providers/:providerUid/availability', async (req, res) => {
+app.get('/api/providers/:providerUid/availability', requireAuth(['provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.providerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const provider = await UserModel.findOne({ uid: req.params.providerUid, role: 'worker' })
       .select('uid workerProfile.isOnline workerProfile.lastStatusUpdatedAt')
       .lean();
@@ -360,8 +418,12 @@ app.get('/api/providers/:providerUid/availability', async (req, res) => {
   }
 });
 
-app.patch('/api/providers/:providerUid/availability', async (req, res) => {
+app.patch('/api/providers/:providerUid/availability', requireAuth(['provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.providerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const { isOnline } = req.body as { isOnline?: boolean };
     if (typeof isOnline !== 'boolean') {
       return res.status(400).json({ success: false, error: 'isOnline boolean is required' });
@@ -399,8 +461,9 @@ app.patch('/api/providers/:providerUid/availability', async (req, res) => {
 });
 
 // Create booking from customer to provider
-app.post('/api/bookings', async (req, res) => {
+app.post('/api/bookings', requireAuth(['customer']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
     const { customerUid, providerId, serviceName, notes, scheduledAt } = req.body as {
       customerUid?: string;
       providerId?: string;
@@ -411,6 +474,9 @@ app.post('/api/bookings', async (req, res) => {
 
     if (!customerUid || !providerId || !serviceName) {
       return res.status(400).json({ success: false, error: 'customerUid, providerId and serviceName are required' });
+    }
+    if (auth.uid !== customerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
     }
 
     const customer = await UserModel.findOne({ uid: customerUid, role: 'customer' }).lean();
@@ -489,8 +555,12 @@ app.post('/api/bookings', async (req, res) => {
   }
 });
 
-app.get('/api/bookings/customer/:customerUid', async (req, res) => {
+app.get('/api/bookings/customer/:customerUid', requireAuth(['customer']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.customerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const customer = await UserModel.findOne({ uid: req.params.customerUid, role: 'customer' }).lean();
     if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
 
@@ -519,8 +589,12 @@ app.get('/api/bookings/customer/:customerUid', async (req, res) => {
   }
 });
 
-app.get('/api/bookings/provider/:providerUid', async (req, res) => {
+app.get('/api/bookings/provider/:providerUid', requireAuth(['provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.providerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const provider = await UserModel.findOne({ uid: req.params.providerUid, role: 'worker' }).lean();
     if (!provider) return res.status(404).json({ success: false, error: 'Provider not found' });
 
@@ -549,8 +623,9 @@ app.get('/api/bookings/provider/:providerUid', async (req, res) => {
   }
 });
 
-app.patch('/api/bookings/:jobId/status', async (req, res) => {
+app.patch('/api/bookings/:jobId/status', requireAuth(['customer', 'provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
     const { status } = req.body as { status?: BookingStatus };
     if (!status) {
       return res.status(400).json({ success: false, error: 'status is required' });
@@ -558,6 +633,12 @@ app.patch('/api/bookings/:jobId/status', async (req, res) => {
 
     const current = await JobModel.findOne({ jobId: req.params.jobId }).lean();
     if (!current) return res.status(404).json({ success: false, error: 'Booking not found' });
+    const actor = await resolveUserByUid(auth.uid, auth.role);
+    if (!actor) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const isOwner =
+      (auth.role === 'customer' && String(current.customerId) === String(actor._id)) ||
+      (auth.role === 'provider' && String(current.workerId) === String(actor._id));
+    if (!isOwner) return res.status(403).json({ success: false, error: 'Forbidden' });
 
     const mappedStatus = status === 'in_progress' ? 'started' : status;
     const paymentStatus = current.payment?.status;
@@ -607,9 +688,16 @@ app.patch('/api/bookings/:jobId/status', async (req, res) => {
   }
 });
 
-app.get('/api/notifications/:recipientUid', async (req, res) => {
+app.get('/api/notifications/:recipientUid', requireAuth(['customer', 'provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.recipientUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const role = req.query.role === 'provider' ? 'provider' : 'customer';
+    if (role !== auth.role) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const limit = req.query.limit ? Math.min(100, Math.max(1, Number(req.query.limit))) : 20;
     const rows = await NotificationModel.find({ recipientUid: req.params.recipientUid, recipientRole: role })
       .sort({ createdAt: -1 })
@@ -627,8 +715,14 @@ app.get('/api/notifications/:recipientUid', async (req, res) => {
   }
 });
 
-app.patch('/api/notifications/:notificationId/read', async (req, res) => {
+app.patch('/api/notifications/:notificationId/read', requireAuth(['customer', 'provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    const current = await NotificationModel.findById(req.params.notificationId).select('recipientUid recipientRole').lean();
+    if (!current) return res.status(404).json({ success: false, error: 'Notification not found' });
+    if (current.recipientUid !== auth.uid || current.recipientRole !== auth.role) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const updated = await NotificationModel.findByIdAndUpdate(
       req.params.notificationId,
       { $set: { read: true } },
@@ -642,8 +736,18 @@ app.patch('/api/notifications/:notificationId/read', async (req, res) => {
   }
 });
 
-app.post('/api/payments/phonepe/create', async (req, res) => {
+app.post('/api/payments/phonepe/create', requireAuth(['customer']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    const { jobId } = req.body as { jobId?: string };
+    if (!jobId) return res.status(400).json({ success: false, error: 'jobId is required' });
+    const actor = await resolveUserByUid(auth.uid, 'customer');
+    if (!actor) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const job = await JobModel.findOne({ jobId }).select('customerId').lean();
+    if (!job) return res.status(404).json({ success: false, error: 'Booking not found' });
+    if (String(job.customerId) !== String(actor._id)) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const result = await proxyPaymentService('/api/payments/phonepe/create', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -670,8 +774,17 @@ app.post('/api/payments/phonepe/webhook', async (req, res) => {
   }
 });
 
-app.get('/api/payments/bookings/:jobId/status', async (req, res) => {
+app.get('/api/payments/bookings/:jobId/status', requireAuth(['customer', 'provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    const actor = await resolveUserByUid(auth.uid, auth.role);
+    if (!actor) return res.status(401).json({ success: false, error: 'Unauthorized' });
+    const job = await JobModel.findOne({ jobId: req.params.jobId }).select('customerId workerId').lean();
+    if (!job) return res.status(404).json({ success: false, error: 'Booking not found' });
+    const allowed =
+      (auth.role === 'customer' && String(job.customerId) === String(actor._id)) ||
+      (auth.role === 'provider' && String(job.workerId) === String(actor._id));
+    if (!allowed) return res.status(403).json({ success: false, error: 'Forbidden' });
     const result = await proxyPaymentService(`/api/payments/bookings/${req.params.jobId}/status`);
     return res.json(result);
   } catch (error) {
@@ -680,7 +793,7 @@ app.get('/api/payments/bookings/:jobId/status', async (req, res) => {
   }
 });
 
-app.post('/api/payouts/weekly/run', async (req, res) => {
+app.post('/api/payouts/weekly/run', requireAuth(['provider']), async (req, res) => {
   try {
     const result = await proxyPaymentService('/api/payouts/weekly/run', {
       method: 'POST',
@@ -694,8 +807,12 @@ app.post('/api/payouts/weekly/run', async (req, res) => {
   }
 });
 
-app.get('/api/payouts/provider/:providerUid', async (req, res) => {
+app.get('/api/payouts/provider/:providerUid', requireAuth(['provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.providerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const result = await proxyPaymentService(`/api/payouts/provider/${req.params.providerUid}`);
     return res.json(result);
   } catch (error) {
@@ -704,8 +821,12 @@ app.get('/api/payouts/provider/:providerUid', async (req, res) => {
   }
 });
 
-app.get('/api/payouts/provider/:providerUid/summary', async (req, res) => {
+app.get('/api/payouts/provider/:providerUid/summary', requireAuth(['provider']), async (req, res) => {
   try {
+    const auth = (req as any).auth as AuthClaims;
+    if (auth.uid !== req.params.providerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
     const result = await proxyPaymentService(`/api/payouts/provider/${req.params.providerUid}/summary`);
     return res.json(result);
   } catch (error) {

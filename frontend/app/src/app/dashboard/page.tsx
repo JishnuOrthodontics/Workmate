@@ -11,6 +11,7 @@ export default function WorkerDashboardPage() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [showNotifications, setShowNotifications] = useState(false)
   const [filter, setFilter] = useState<'all' | 'requested' | 'active' | 'completed'>('all')
+  const [payingJobId, setPayingJobId] = useState<string | null>(null)
   const router = useRouter()
   const { ready, customerSession, logout } = useAuth()
 
@@ -25,11 +26,12 @@ export default function WorkerDashboardPage() {
 
   useEffect(() => {
     const run = async () => {
-      if (!customerSession?.uid) return
+      if (!customerSession?.uid || !customerSession?.token) return
+      const authHeaders = { Authorization: `Bearer ${customerSession.token}` }
       try {
         const [bookingsRes, notificationsRes] = await Promise.all([
-          fetch(`http://localhost:3333/api/bookings/customer/${customerSession.uid}`),
-          fetch(`http://localhost:3333/api/notifications/${customerSession.uid}?role=customer&limit=25`),
+          fetch(`http://localhost:3333/api/bookings/customer/${customerSession.uid}`, { headers: authHeaders }),
+          fetch(`http://localhost:3333/api/notifications/${customerSession.uid}?role=customer&limit=25`, { headers: authHeaders }),
         ])
         const bookingsJson = await bookingsRes.json()
         const notificationsJson = await notificationsRes.json()
@@ -43,17 +45,32 @@ export default function WorkerDashboardPage() {
       }
     }
     run()
-  }, [customerSession?.uid])
+  }, [customerSession?.uid, customerSession?.token])
 
   const markNotificationRead = async (notificationId: string) => {
     try {
-      const res = await fetch(`http://localhost:3333/api/notifications/${notificationId}/read`, { method: 'PATCH' })
+      if (!customerSession?.token) return
+      const res = await fetch(`http://localhost:3333/api/notifications/${notificationId}/read`, {
+        method: 'PATCH',
+        headers: { Authorization: `Bearer ${customerSession.token}` },
+      })
       const json = await res.json()
-      if (!res.ok || !json?.success) return
+      if (!res.ok || !json?.success) {
+        pushLocalNotification(
+          'Notification sync issue',
+          json?.error || 'Unable to mark notification as read on server.',
+          'system'
+        )
+        return
+      }
       setNotifications((prev) => prev.map((n) => (n._id === notificationId ? { ...n, read: true } : n)))
       setUnreadCount((prev) => Math.max(0, prev - 1))
     } catch {
-      // no-op
+      pushLocalNotification(
+        'Notification sync issue',
+        'Network issue while updating notification read status.',
+        'system'
+      )
     }
   }
 
@@ -64,14 +81,93 @@ export default function WorkerDashboardPage() {
 
   const handleCancelBooking = async (jobId: string) => {
     try {
-      await fetch(`http://localhost:3333/api/bookings/${jobId}/status`, {
+      if (!customerSession?.token) return
+      const res = await fetch(`http://localhost:3333/api/bookings/${jobId}/status`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${customerSession.token}` },
         body: JSON.stringify({ status: 'cancelled' }),
       })
+      const json = await res.json()
+      if (!res.ok || !json?.success) {
+        pushLocalNotification(
+          'Cancellation failed',
+          json?.error || `Unable to cancel booking ${jobId}.`,
+          'booking'
+        )
+        return
+      }
       setBookings((prev) => prev.map((b) => (b.id === jobId ? { ...b, status: 'cancelled' } : b)))
+      pushLocalNotification(
+        'Booking cancelled',
+        `Booking ${jobId} was cancelled successfully.`,
+        'booking'
+      )
     } catch {
-      // no-op
+      pushLocalNotification(
+        'Cancellation failed',
+        `Network issue while cancelling booking ${jobId}.`,
+        'booking'
+      )
+    }
+  }
+
+  const pushLocalNotification = (title: string, message: string, type: string = 'system') => {
+    const localItem = {
+      _id: `local-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      title,
+      message,
+      read: false,
+      createdAt: new Date().toISOString(),
+      type,
+    }
+    setNotifications((prev) => [localItem, ...prev].slice(0, 50))
+    setUnreadCount((prev) => prev + 1)
+  }
+
+  const handleResumePayment = async (jobId: string) => {
+    try {
+      if (!customerSession?.token || !customerSession?.uid) return
+      setPayingJobId(jobId)
+      const res = await fetch('http://localhost:3333/api/payments/phonepe/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${customerSession.token}`,
+        },
+        body: JSON.stringify({ jobId, idempotencyKey: customerSession.uid }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json?.success) {
+        pushLocalNotification(
+          'Payment retry failed',
+          json?.error || `Unable to resume payment for booking ${jobId}. Please try again.`,
+          'payment'
+        )
+        return
+      }
+      const paymentUrl = json?.data?.paymentUrl as string | undefined
+      if (paymentUrl) {
+        window.open(paymentUrl, '_blank', 'noopener,noreferrer')
+        pushLocalNotification(
+          'Payment retry started',
+          `Payment session reopened for booking ${jobId}. Complete it in PhonePe.`,
+          'payment'
+        )
+      } else {
+        pushLocalNotification(
+          'Payment retry unavailable',
+          `No payment link was returned for booking ${jobId}. Please retry shortly.`,
+          'payment'
+        )
+      }
+    } catch {
+      pushLocalNotification(
+        'Payment retry failed',
+        `Network or server issue while reopening payment for booking ${jobId}.`,
+        'payment'
+      )
+    } finally {
+      setPayingJobId(null)
     }
   }
 
@@ -206,6 +302,16 @@ export default function WorkerDashboardPage() {
                       <span className="text-xs rounded-full bg-white border border-emerald-200 px-2 py-1 text-emerald-800 capitalize">{booking.status.replace('_', ' ')}</span>
                       {['requested', 'accepted'].includes(booking.status) ? (
                         <button className="text-xs rounded-md border border-stone-300 bg-white px-2 py-1 text-stone-700" onClick={() => handleCancelBooking(booking.id)} type="button">Cancel</button>
+                      ) : null}
+                      {['pending', 'authorized'].includes(booking.paymentStatus) ? (
+                        <button
+                          className="text-xs rounded-md bg-amber-600 px-2 py-1 text-white disabled:opacity-60"
+                          disabled={payingJobId === booking.id}
+                          onClick={() => handleResumePayment(booking.id)}
+                          type="button"
+                        >
+                          {payingJobId === booking.id ? 'Opening...' : 'Resume Payment'}
+                        </button>
                       ) : null}
                     </div>
                   </div>

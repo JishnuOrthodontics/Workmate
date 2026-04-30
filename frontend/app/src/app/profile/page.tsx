@@ -6,6 +6,15 @@ import { useAuth } from '../auth-provider'
 import { setSession } from '../../lib/auth-client'
 
 type PaymentStatus = 'initiated' | 'pending' | 'paid' | 'failed'
+const PENDING_PAYMENT_KEY = 'workmate_pending_payment'
+
+type PendingPayment = {
+  jobId: string;
+  customerUid: string;
+  providerId: string;
+  serviceName: string;
+  scheduledAt: string;
+}
 
 function ProfilePageContent() {
   const { ready, activeRole, customerSession, refresh } = useAuth()
@@ -29,12 +38,42 @@ function ProfilePageContent() {
   const [notifySms, setNotifySms] = useState(true)
   const [notifyWhatsapp, setNotifyWhatsapp] = useState(true)
   const [notifyPush, setNotifyPush] = useState(true)
+  const [pendingPayment, setPendingPayment] = useState<PendingPayment | null>(null)
+
+  const savePendingPayment = (data: PendingPayment) => {
+    localStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify(data))
+    setPendingPayment(data)
+  }
+
+  const clearPendingPayment = () => {
+    localStorage.removeItem(PENDING_PAYMENT_KEY)
+    setPendingPayment(null)
+  }
+
+  const createPaymentForJob = async (jobId: string, token: string, idempotencyKey: string) => {
+    const paymentRes = await fetch('http://localhost:3333/api/payments/phonepe/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ jobId, idempotencyKey }),
+    })
+    const paymentJson = await paymentRes.json()
+    if (!paymentRes.ok || !paymentJson?.success) {
+      throw new Error(paymentJson?.error || 'Payment session creation failed')
+    }
+    const paymentUrl = paymentJson?.data?.paymentUrl as string | undefined
+    if (paymentUrl) {
+      window.open(paymentUrl, '_blank', 'noopener,noreferrer')
+    }
+    return paymentJson
+  }
 
   useEffect(() => {
     const loadProfile = async () => {
-      if (!customerSession?.uid || providerId) return
+      if (!customerSession?.uid || !customerSession?.token || providerId) return
       try {
-        const res = await fetch(`http://localhost:3333/api/customers/${customerSession.uid}/profile`)
+        const res = await fetch(`http://localhost:3333/api/customers/${customerSession.uid}/profile`, {
+          headers: { Authorization: `Bearer ${customerSession.token}` },
+        })
         const json = await res.json()
         if (!res.ok || !json?.success) return
         setProfileName(json.data.name || '')
@@ -49,7 +88,34 @@ function ProfilePageContent() {
       }
     }
     loadProfile()
-  }, [customerSession?.uid, providerId])
+  }, [customerSession?.uid, customerSession?.token, providerId])
+
+  useEffect(() => {
+    if (!customerSession?.uid || !customerSession?.token) return
+    const raw = localStorage.getItem(PENDING_PAYMENT_KEY)
+    if (!raw) return
+    try {
+      const pending = JSON.parse(raw) as PendingPayment
+      if (pending.customerUid !== customerSession.uid) return
+      setPendingPayment(pending)
+      fetch(`http://localhost:3333/api/payments/bookings/${pending.jobId}/status`, {
+        headers: { Authorization: `Bearer ${customerSession.token}` },
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          const status = String(json?.data?.paymentStatus || '')
+          if (status === 'captured' || status === 'released') {
+            clearPendingPayment()
+            setPaymentState('paid')
+          }
+        })
+        .catch(() => {
+          // keep pending state if status check fails
+        })
+    } catch {
+      localStorage.removeItem(PENDING_PAYMENT_KEY)
+    }
+  }, [customerSession?.uid, customerSession?.token])
 
   const handleBookService = async () => {
     if (!providerId) {
@@ -58,7 +124,7 @@ function ProfilePageContent() {
     }
     const raw = localStorage.getItem('workmate_customer_auth')
     const customer = raw ? JSON.parse(raw) : null
-    if (!customer?.uid) {
+    if (!customer?.uid || !customer?.token) {
       router.push(`/auth?role=customer&next=${encodeURIComponent(`/profile?providerId=${providerId}`)}`)
       return
     }
@@ -71,7 +137,7 @@ function ProfilePageContent() {
 
       const res = await fetch('http://localhost:3333/api/bookings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${customer.token}` },
         body: JSON.stringify({
           customerUid: customer.uid,
           providerId,
@@ -82,29 +148,43 @@ function ProfilePageContent() {
       const json = await res.json()
       if (!res.ok || !json?.success) throw new Error(json?.error || 'Booking failed')
 
-      const paymentRes = await fetch('http://localhost:3333/api/payments/phonepe/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jobId: json.data.id, idempotencyKey: customer.uid }),
+      savePendingPayment({
+        jobId: json.data.id,
+        customerUid: customer.uid,
+        providerId,
+        serviceName,
+        scheduledAt: scheduledAt.toISOString(),
       })
-      const paymentJson = await paymentRes.json()
-      if (!paymentRes.ok || !paymentJson?.success) {
-        setPaymentState('failed')
-        throw new Error(paymentJson?.error || 'Payment session creation failed')
-      }
+      await createPaymentForJob(json.data.id, customer.token, customer.uid)
 
       setPaymentState('initiated')
-      setBookingMessage(`Booking created (ID: ${json.data.id}). Payment session is ready.`)
+      setBookingMessage(`Booking created (ID: ${json.data.id}). Payment session is ready. Complete payment in PhonePe.`)
     } catch (err) {
       setPaymentState((prev) => prev || 'failed')
-      setBookingMessage(err instanceof Error ? err.message : 'Booking failed')
+      setBookingMessage(err instanceof Error ? err.message : 'Booking/payment initiation failed')
+    } finally {
+      setBookingLoading(false)
+    }
+  }
+
+  const handleResumePayment = async () => {
+    if (!pendingPayment || !customerSession?.token || !customerSession?.uid) return
+    try {
+      setBookingLoading(true)
+      setBookingMessage('')
+      await createPaymentForJob(pendingPayment.jobId, customerSession.token, customerSession.uid)
+      setPaymentState('initiated')
+      setBookingMessage(`Payment resumed for booking ${pendingPayment.jobId}.`)
+    } catch (err) {
+      setPaymentState('failed')
+      setBookingMessage(err instanceof Error ? err.message : 'Failed to resume payment')
     } finally {
       setBookingLoading(false)
     }
   }
 
   const handleSaveProfile = async () => {
-    if (!customerSession?.uid) {
+    if (!customerSession?.uid || !customerSession?.token) {
       router.push('/auth?role=customer')
       return
     }
@@ -113,7 +193,7 @@ function ProfilePageContent() {
       setProfileMessage('')
       const res = await fetch(`http://localhost:3333/api/customers/${customerSession.uid}/profile`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${customerSession.token}` },
         body: JSON.stringify({
           name: profileName,
           phone: profilePhone,
@@ -243,6 +323,31 @@ function ProfilePageContent() {
             <h2 className="text-xl font-bold text-emerald-900">Booking Details</h2>
             <p className="mt-1 text-sm text-stone-600">Confirm your requirement and initiate payment.</p>
             <div className="mt-5 space-y-3">
+              {pendingPayment ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-semibold uppercase text-amber-800">Pending payment</p>
+                  <p className="mt-1 text-sm text-amber-900">
+                    Booking {pendingPayment.jobId} is waiting for payment completion.
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      className="rounded-lg bg-amber-600 px-3 py-1 text-xs font-semibold text-white disabled:opacity-60"
+                      disabled={bookingLoading}
+                      onClick={handleResumePayment}
+                      type="button"
+                    >
+                      Resume Payment
+                    </button>
+                    <button
+                      className="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800"
+                      onClick={clearPendingPayment}
+                      type="button"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               <input
                 className="w-full rounded-xl border border-emerald-100 px-3 py-2 text-sm"
                 onChange={(e) => setServiceName(e.target.value)}

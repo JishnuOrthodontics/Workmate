@@ -17,10 +17,19 @@ const phonePeSaltKey = process.env.PHONEPE_SALT_KEY || 'phonepe-sandbox-key';
 const phonePeSaltIndex = process.env.PHONEPE_SALT_INDEX || '1';
 const phonePeMerchantId = process.env.PHONEPE_MERCHANT_ID || 'PGTESTPAYUAT';
 const payoutWindowDays = Number(process.env.PAYOUT_WINDOW_DAYS || 7);
+const internalServiceToken = process.env.INTERNAL_SERVICE_TOKEN || 'workmate-internal-dev-token';
 
 app.use(helmet());
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+
+app.use('/api', (req, res, next) => {
+  const token = String(req.headers['x-internal-service-token'] || '');
+  if (token !== internalServiceToken) {
+    return res.status(401).json({ success: false, error: 'Unauthorized internal caller' });
+  }
+  return next();
+});
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'healthy', service: 'payment-service', mongoConnected: mongoose.connection.readyState === 1 });
