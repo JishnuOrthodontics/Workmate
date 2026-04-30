@@ -87,8 +87,8 @@ flowchart LR
     PP[PhonePe sandbox]
   end
 
-  UI -->|"JWT login / register JSON"| AUTH
-  UI -->|"REST: search, bookings, profile, notifications"| GW
+  UI -->|"JWT login / register JSON (`/auth`, `/auth/admin`)"| AUTH
+  UI -->|"REST: search, bookings, profile, notifications, admin metrics"| GW
   GW --> DB
   AUTH --> DB
   PAY --> DB
