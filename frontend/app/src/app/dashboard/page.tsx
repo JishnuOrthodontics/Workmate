@@ -3,8 +3,11 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../auth-provider'
+import { LanguageSwitcher } from '../language-switcher'
+import { useLocale } from '../locale-provider'
 
 export default function WorkerDashboardPage() {
+  const { t } = useLocale()
   const [isAuthorized, setIsAuthorized] = useState(false)
   const [bookings, setBookings] = useState<Array<{ id: string; status: string; paymentStatus: string; serviceName: string; providerName: string; scheduledAt: string }>>([])
   const [savedProviders, setSavedProviders] = useState<Array<{ id: string; name: string; title: string; location: string; avatarUrl: string }>>([])
@@ -13,6 +16,11 @@ export default function WorkerDashboardPage() {
   const [showNotifications, setShowNotifications] = useState(false)
   const [filter, setFilter] = useState<'all' | 'requested' | 'active' | 'completed'>('all')
   const [payingJobId, setPayingJobId] = useState<string | null>(null)
+  const [feedbackJobId, setFeedbackJobId] = useState('')
+  const [feedbackRating, setFeedbackRating] = useState(5)
+  const [feedbackText, setFeedbackText] = useState('')
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
+  const [feedbackMessage, setFeedbackMessage] = useState('')
   const router = useRouter()
   const { ready, customerSession, logout } = useAuth()
 
@@ -177,6 +185,47 @@ export default function WorkerDashboardPage() {
     }
   }
 
+  const handleSubmitFeedback = async () => {
+    try {
+      if (!customerSession?.uid || !customerSession?.token || !feedbackJobId) {
+        setFeedbackMessage(t('customerDashboard.feedback.msgSelectBooking'))
+        return
+      }
+      if (!Number.isFinite(feedbackRating) || feedbackRating < 1 || feedbackRating > 5) {
+        setFeedbackMessage(t('customerDashboard.feedback.msgRatingRange'))
+        return
+      }
+      setFeedbackSubmitting(true)
+      setFeedbackMessage('')
+
+      const res = await fetch('http://localhost:3333/api/feedback', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${customerSession.token}`,
+        },
+        body: JSON.stringify({
+          customerUid: customerSession.uid,
+          jobId: feedbackJobId,
+          rating: feedbackRating,
+          feedback: feedbackText.trim(),
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json?.success) {
+        setFeedbackMessage(json?.error || t('customerDashboard.feedback.msgSubmitFail'))
+        return
+      }
+      setFeedbackText('')
+      setFeedbackMessage(t('customerDashboard.feedback.msgThankYou'))
+      pushLocalNotification('Feedback submitted', 'Your feedback has been shared with admin and provider.', 'system')
+    } catch {
+      setFeedbackMessage(t('customerDashboard.feedback.msgNetwork'))
+    } finally {
+      setFeedbackSubmitting(false)
+    }
+  }
+
   const visibleBookings = bookings.filter((booking) => {
     if (filter === 'all') return true
     if (filter === 'requested') return booking.status === 'requested'
@@ -188,6 +237,7 @@ export default function WorkerDashboardPage() {
     .filter((b) => ['completed', 'cancelled'].includes(b.status))
     .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime())
     .slice(0, 4)
+  const completedBookings = bookings.filter((b) => b.status === 'completed').slice(0, 20)
 
   if (!isAuthorized) {
     return null
@@ -198,25 +248,28 @@ export default function WorkerDashboardPage() {
       {/* SideNavBar (Desktop) */}
       <aside className="hidden lg:flex flex-col h-screen sticky top-0 py-8 px-4 w-64 border-r border-emerald-100 shadow-lg bg-white/80 backdrop-blur-xl font-['Inter'] tracking-tight">
         <div className="mb-xl px-4">
-          <h2 className="text-xl font-bold text-[#1E4620] dark:text-emerald-400">Namaskaram</h2>
-          <p className="font-caption text-caption text-stone-500 mt-xs">Manage your home services</p>
+          <h2 className="text-xl font-bold text-[#1E4620] dark:text-emerald-400">{t('customerDashboard.brand')}</h2>
+          <p className="font-caption text-caption text-stone-500 mt-xs">{t('customerDashboard.tagline')}</p>
+          <div className="mt-3">
+            <LanguageSwitcher />
+          </div>
         </div>
         <nav className="flex flex-col gap-sm">
           <a className="flex items-center gap-3 text-stone-600 dark:text-stone-400 px-4 py-3 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors" href="/search">
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 0" }}>search</span>
-            Search Providers
+            {t('customerDashboard.nav.searchProviders')}
           </a>
           <a className="flex items-center gap-3 bg-gradient-to-r from-emerald-700 to-emerald-500 text-white rounded-xl px-4 py-3 font-semibold shadow-md" href="/dashboard">
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>dashboard</span>
-            Customer Dashboard
+            {t('customerDashboard.nav.dashboard')}
           </a>
           <a className="flex items-center gap-3 text-stone-600 dark:text-stone-400 px-4 py-3 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors" href="/profile">
             <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 0" }}>person</span>
-            My Account
+            {t('customerDashboard.nav.account')}
           </a>
         </nav>
         <button className="mx-4 mt-4 rounded-xl bg-white border border-emerald-100 px-4 py-2 text-stone-700 hover:bg-emerald-50 transition-colors" onClick={handleLogout} type="button">
-          Logout
+          {t('customerDashboard.nav.logout')}
         </button>
       </aside>
 
@@ -224,14 +277,15 @@ export default function WorkerDashboardPage() {
       <main className="flex-1 overflow-y-auto pb-xl md:pb-0 relative">
         {/* Mobile Header (Minimal) */}
         <header className="lg:hidden flex items-center justify-between p-md sticky top-0 bg-background/90 backdrop-blur-md z-10 border-b border-outline-variant/20">
-          <h1 className="font-h3 text-h3 text-primary">Namaskaram</h1>
+          <h1 className="font-h3 text-h3 text-primary">{t('customerDashboard.brand')}</h1>
           <div className="flex items-center gap-2">
+            <LanguageSwitcher />
             <button
               className="px-3 py-2 rounded-lg border border-emerald-100 bg-white text-stone-700 text-xs font-semibold"
               onClick={handleLogout}
               type="button"
             >
-              Logout
+              {t('customerDashboard.nav.logout')}
             </button>
             <div className="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center overflow-hidden">
               <span className="material-symbols-outlined text-outline">person</span>
@@ -244,8 +298,8 @@ export default function WorkerDashboardPage() {
           <section>
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h1 className="font-h1 text-h1 text-primary-container tracking-tight">Namaskaram, {customerName}.</h1>
-                <p className="font-body-lg text-body-lg text-on-surface-variant mt-sm">Your home is in good hands. Here's what's happening today.</p>
+                <h1 className="font-h1 text-h1 text-primary-container tracking-tight">{t('customerDashboard.welcome.title', { name: customerName })}</h1>
+                <p className="font-body-lg text-body-lg text-on-surface-variant mt-sm">{t('customerDashboard.welcome.subtitle')}</p>
               </div>
               <button
                 className="relative rounded-xl border border-emerald-100 bg-white px-3 py-2 text-stone-700 hover:bg-emerald-50"
@@ -264,12 +318,12 @@ export default function WorkerDashboardPage() {
           {showNotifications ? (
             <section className="rounded-2xl border border-emerald-100 bg-white p-3 shadow-sm">
               <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-sm font-bold text-emerald-900">Notifications</h2>
-                <span className="text-xs text-stone-500">{unreadCount} unread</span>
+                <h2 className="text-sm font-bold text-emerald-900">{t('customerDashboard.notifications.title')}</h2>
+                <span className="text-xs text-stone-500">{t('customerDashboard.notifications.unread', { count: String(unreadCount) })}</span>
               </div>
               <div className="max-h-72 space-y-2 overflow-y-auto">
                 {notifications.length === 0 ? (
-                  <p className="p-2 text-sm text-stone-500">No notifications yet.</p>
+                  <p className="p-2 text-sm text-stone-500">{t('customerDashboard.notifications.empty')}</p>
                 ) : (
                   notifications.map((n) => (
                     <button
@@ -290,16 +344,16 @@ export default function WorkerDashboardPage() {
 
           <section className="bg-white/90 rounded-2xl border border-emerald-100 p-4 shadow-sm">
             <div className="flex items-center justify-between gap-3 mb-3">
-              <h2 className="font-h3 text-h3 text-on-surface">My Recent Bookings</h2>
+              <h2 className="font-h3 text-h3 text-on-surface">{t('customerDashboard.bookings.recentTitle')}</h2>
               <div className="flex items-center gap-1">
-                <button className={`text-xs rounded-full px-2 py-1 border ${filter === 'all' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-stone-700 border-emerald-200'}`} onClick={() => setFilter('all')} type="button">All</button>
-                <button className={`text-xs rounded-full px-2 py-1 border ${filter === 'requested' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-stone-700 border-emerald-200'}`} onClick={() => setFilter('requested')} type="button">Requested</button>
-                <button className={`text-xs rounded-full px-2 py-1 border ${filter === 'active' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-stone-700 border-emerald-200'}`} onClick={() => setFilter('active')} type="button">Active</button>
-                <button className={`text-xs rounded-full px-2 py-1 border ${filter === 'completed' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-stone-700 border-emerald-200'}`} onClick={() => setFilter('completed')} type="button">Done</button>
+                <button className={`text-xs rounded-full px-2 py-1 border ${filter === 'all' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-stone-700 border-emerald-200'}`} onClick={() => setFilter('all')} type="button">{t('customerDashboard.bookings.filterAll')}</button>
+                <button className={`text-xs rounded-full px-2 py-1 border ${filter === 'requested' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-stone-700 border-emerald-200'}`} onClick={() => setFilter('requested')} type="button">{t('customerDashboard.bookings.filterRequested')}</button>
+                <button className={`text-xs rounded-full px-2 py-1 border ${filter === 'active' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-stone-700 border-emerald-200'}`} onClick={() => setFilter('active')} type="button">{t('customerDashboard.bookings.filterActive')}</button>
+                <button className={`text-xs rounded-full px-2 py-1 border ${filter === 'completed' ? 'bg-emerald-700 text-white border-emerald-700' : 'bg-white text-stone-700 border-emerald-200'}`} onClick={() => setFilter('completed')} type="button">{t('customerDashboard.bookings.filterDone')}</button>
               </div>
             </div>
             {visibleBookings.length === 0 ? (
-              <p className="text-sm text-on-surface-variant">No bookings yet. Visit provider profile and book your first service.</p>
+              <p className="text-sm text-on-surface-variant">{t('customerDashboard.bookings.empty')}</p>
             ) : (
               <div className="space-y-2">
                 {visibleBookings.slice(0, 6).map((booking) => (
@@ -307,12 +361,12 @@ export default function WorkerDashboardPage() {
                     <div>
                       <p className="text-sm font-semibold text-on-surface">{booking.serviceName}</p>
                       <p className="text-xs text-on-surface-variant">{booking.providerName} • {new Date(booking.scheduledAt).toLocaleDateString()}</p>
-                      <p className="text-[11px] text-emerald-700 capitalize">Payment: {booking.paymentStatus.replace('_', ' ')}</p>
+                      <p className="text-[11px] text-emerald-700 capitalize">{t('customerDashboard.bookings.payment', { status: booking.paymentStatus.replace('_', ' ') })}</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs rounded-full bg-white border border-emerald-200 px-2 py-1 text-emerald-800 capitalize">{booking.status.replace('_', ' ')}</span>
                       {['requested', 'accepted'].includes(booking.status) ? (
-                        <button className="text-xs rounded-md border border-stone-300 bg-white px-2 py-1 text-stone-700" onClick={() => handleCancelBooking(booking.id)} type="button">Cancel</button>
+                        <button className="text-xs rounded-md border border-stone-300 bg-white px-2 py-1 text-stone-700" onClick={() => handleCancelBooking(booking.id)} type="button">{t('customerDashboard.bookings.cancel')}</button>
                       ) : null}
                       {['pending', 'authorized'].includes(booking.paymentStatus) ? (
                         <button
@@ -321,7 +375,7 @@ export default function WorkerDashboardPage() {
                           onClick={() => handleResumePayment(booking.id)}
                           type="button"
                         >
-                          {payingJobId === booking.id ? 'Opening...' : 'Resume Payment'}
+                          {payingJobId === booking.id ? t('customerDashboard.bookings.opening') : t('customerDashboard.bookings.resumePayment')}
                         </button>
                       ) : null}
                     </div>
@@ -342,9 +396,9 @@ export default function WorkerDashboardPage() {
                 <div className="flex items-center justify-between mb-lg relative z-10">
                   <h2 className="font-h3 text-h3 text-on-background flex items-center gap-sm">
                     <span className="material-symbols-outlined text-primary-container">notifications_active</span>
-                    Active Bookings
+                    {t('customerDashboard.activeBookings.title')}
                   </h2>
-                  <button className="font-label-md text-label-md text-primary hover:text-primary-container transition-colors">View All</button>
+                  <button className="font-label-md text-label-md text-primary hover:text-primary-container transition-colors">{t('customerDashboard.activeBookings.viewAll')}</button>
                 </div>
 
                 <div className="space-y-2 relative z-10">
@@ -358,7 +412,7 @@ export default function WorkerDashboardPage() {
                     </div>
                   ))}
                   {bookings.filter((b) => !['completed', 'cancelled'].includes(b.status)).length === 0 ? (
-                    <p className="text-sm text-on-surface-variant">No active bookings currently.</p>
+                    <p className="text-sm text-on-surface-variant">{t('customerDashboard.activeBookings.empty')}</p>
                   ) : null}
                 </div>
               </section>
@@ -367,11 +421,11 @@ export default function WorkerDashboardPage() {
               <section className="bg-gradient-to-br from-white to-emerald-50 rounded-2xl shadow-[0_10px_24px_rgba(30,70,32,0.06)] border border-emerald-100 p-md">
                 <h2 className="font-h3 text-h3 text-on-background mb-lg flex items-center gap-sm">
                   <span className="material-symbols-outlined text-outline">history</span>
-                  Recent Activity
+                  {t('customerDashboard.recentActivity.title')}
                 </h2>
                 <div className="space-y-0">
                   {recentActivity.length === 0 ? (
-                    <p className="text-sm text-on-surface-variant">No recent booking activity yet.</p>
+                    <p className="text-sm text-on-surface-variant">{t('customerDashboard.recentActivity.empty')}</p>
                   ) : (
                     recentActivity.map((item) => (
                       <div className="flex items-start gap-md py-sm border-b border-outline-variant/20 last:border-0 last:pb-0" key={item.id}>
@@ -383,7 +437,7 @@ export default function WorkerDashboardPage() {
                         <div className="flex-1">
                           <h4 className="font-body-md text-body-md font-medium text-on-background">{item.serviceName}</h4>
                           <p className="font-caption text-caption text-on-surface-variant">
-                            {item.status === 'completed' ? 'Completed' : 'Cancelled'} with {item.providerName}
+                            {item.status === 'completed' ? t('customerDashboard.recentActivity.completedWith', { provider: item.providerName }) : t('customerDashboard.recentActivity.cancelledWith', { provider: item.providerName })}
                           </p>
                         </div>
                         <div className="text-right">
@@ -409,14 +463,14 @@ export default function WorkerDashboardPage() {
                 <div className="flex items-center justify-between mb-lg">
                   <h2 className="font-h3 text-h3 text-on-background flex items-center gap-sm">
                     <span className="material-symbols-outlined text-secondary">favorite</span>
-                    Saved Pros
+                    {t('customerDashboard.savedPros.title')}
                   </h2>
                 </div>
 
                 <div className="grid grid-cols-2 gap-sm">
                   {savedProviders.length === 0 ? (
                     <div className="col-span-2 rounded-lg border border-outline-variant/20 bg-surface-container-low p-sm text-center text-xs text-on-surface-variant">
-                      No saved providers yet. Save providers from their profile to see them here.
+                      {t('customerDashboard.savedPros.empty')}
                     </div>
                   ) : (
                     savedProviders.slice(0, 4).map((provider) => (
@@ -434,12 +488,86 @@ export default function WorkerDashboardPage() {
                     <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center mb-xs text-on-surface-variant group-hover:text-primary transition-colors">
                       <span className="material-symbols-outlined">add</span>
                     </div>
-                    <h4 className="font-label-md text-label-md text-on-background">Find more pros</h4>
+                    <h4 className="font-label-md text-label-md text-on-background">{t('customerDashboard.savedPros.findMore')}</h4>
                   </a>
                 </div>
               </section>
             </div>
           </div>
+
+          <section className="bg-gradient-to-br from-white to-emerald-50 rounded-2xl border border-emerald-100 p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="font-h3 text-h3 text-on-surface flex items-center gap-2">
+                <span className="material-symbols-outlined text-emerald-700">rate_review</span>
+                {t('customerDashboard.feedback.title')}
+              </h2>
+              <span className="text-xs text-stone-500">{t('customerDashboard.feedback.visibleToAdmin')}</span>
+            </div>
+            {completedBookings.length === 0 ? (
+              <p className="text-sm text-on-surface-variant">{t('customerDashboard.feedback.noCompleted')}</p>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-stone-500">{t('customerDashboard.feedback.bookingLabel')}</label>
+                  <select
+                    className="mt-1 w-full rounded-xl border border-emerald-100 bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-emerald-300"
+                    onChange={(e) => setFeedbackJobId(e.target.value)}
+                    value={feedbackJobId}
+                  >
+                    <option value="">{t('customerDashboard.feedback.selectBooking')}</option>
+                    {completedBookings.map((booking) => (
+                      <option key={booking.id} value={booking.id}>
+                        {booking.serviceName} • {booking.providerName} • {new Date(booking.scheduledAt).toLocaleDateString()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-stone-500">{t('customerDashboard.feedback.ratingLabel')}</label>
+                  <div className="mt-1 flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setFeedbackRating(value)}
+                        className={`rounded-full px-2 py-1 text-xs font-semibold border ${
+                          feedbackRating === value ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-stone-700 border-emerald-200'
+                        }`}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                    <span className="ml-1 text-xs text-stone-600">/ 5</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold uppercase tracking-wide text-stone-500">{t('customerDashboard.feedback.detailsLabel')}</label>
+                  <textarea
+                    className="mt-1 w-full rounded-xl border border-emerald-100 bg-white px-3 py-2 text-sm text-stone-800 outline-none focus:border-emerald-300"
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    placeholder={t('customerDashboard.feedback.placeholder')}
+                    rows={3}
+                    value={feedbackText}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] text-stone-500">{t('customerDashboard.feedback.helper')}</p>
+                  <button
+                    className="rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    disabled={feedbackSubmitting || !feedbackJobId}
+                    onClick={handleSubmitFeedback}
+                    type="button"
+                  >
+                    {feedbackSubmitting ? t('customerDashboard.feedback.submitting') : t('customerDashboard.feedback.submit')}
+                  </button>
+                </div>
+                {feedbackMessage ? <p className="text-xs text-stone-600">{feedbackMessage}</p> : null}
+              </div>
+            )}
+          </section>
         </div>
       </main>
 
@@ -447,15 +575,15 @@ export default function WorkerDashboardPage() {
       <nav className="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-3 md:hidden docked full-width bottom-0 rounded-t-2xl border-t border-[#5C4033]/10 dark:border-stone-800 shadow-[0_-4px_12px_rgba(30,70,32,0.05)] bg-[#fdfbf7]/90 dark:bg-stone-900/90 backdrop-blur-md">
         <a className="flex flex-col items-center justify-center text-stone-500 dark:text-stone-500 active:bg-stone-100 dark:active:bg-stone-800 rounded-xl px-3 py-1" href="/search">
           <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 0" }}>search</span>
-          <span className="text-[10px] font-bold uppercase tracking-widest mt-1">Providers</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest mt-1">{t('customerDashboard.mobileNav.providers')}</span>
         </a>
         <a className="flex flex-col items-center justify-center text-[#1E4620] dark:text-emerald-400 bg-[#e8f0e8] dark:bg-emerald-900/40 rounded-xl px-3 py-1" href="/dashboard">
           <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>dashboard</span>
-          <span className="text-[10px] font-bold uppercase tracking-widest mt-1">Dashboard</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest mt-1">{t('customerDashboard.mobileNav.dashboard')}</span>
         </a>
         <a className="flex flex-col items-center justify-center text-stone-500 dark:text-stone-500 active:bg-stone-100 dark:active:bg-stone-800 rounded-xl px-3 py-1" href="/profile">
           <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 0" }}>person</span>
-          <span className="text-[10px] font-bold uppercase tracking-widest mt-1">Account</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest mt-1">{t('customerDashboard.mobileNav.account')}</span>
         </a>
       </nav>
     </div>

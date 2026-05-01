@@ -15,6 +15,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html[data-locale='ml'] body {
+  font-family: 'Noto Sans Malayalam', 'Inter', system-ui, sans-serif;
+}
+
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import { UserModel } from '../../../libs/data-access/src/lib/user.model';
 import { JobModel } from '../../../libs/data-access/src/lib/jobs.model';
 import { NotificationModel } from '../../../libs/data-access/src/lib/notification.model';
+import { CustomerFeedbackModel } from '../../../libs/data-access/src/lib/feedback.model';
 
 const host = process.env.HOST ?? 'localhost';
 const port = process.env.PORT ? Number(process.env.PORT) : 3333;
@@ -18,6 +19,11 @@ type ProviderSearchQuery = {
   q?: string;
   category?: string;
   languages?: string[];
+  lat?: number;
+  lng?: number;
+  radiusKm?: number;
+  locationSource?: 'gps' | 'manual';
+  locationLabel?: string;
   minPrice?: number;
   maxPrice?: number;
   minRating?: number;
@@ -36,7 +42,9 @@ type ProviderListItem = {
   skills: string[];
   hourlyRateFrom: number;
   rating: number;
+  ratingCount: number;
   yearsExperience: number;
+  distanceKm?: number;
   district: string;
   locality: string;
   languages: string[];
@@ -123,6 +131,29 @@ async function createNotification(input: {
     read: false,
     metadata: input.metadata || {},
   });
+}
+
+async function recomputeProviderRating(providerUid: string) {
+  const [aggregate] = await CustomerFeedbackModel.aggregate([
+    { $match: { providerUid } },
+    { $group: { _id: '$providerUid', avgRating: { $avg: '$rating' }, ratingCount: { $sum: 1 } } },
+  ]);
+  const avg = Number(aggregate?.avgRating || 0);
+  const count = Number(aggregate?.ratingCount || 0);
+  const roundedAvg = Number(avg.toFixed(1));
+
+  await UserModel.updateOne(
+    { uid: providerUid, role: 'worker' },
+    {
+      $set: {
+        'workerProfile.performance.rating': roundedAvg,
+        'workerProfile.performance.ratingCount': count,
+        'workerProfile.performance.ratingUpdatedAt': new Date(),
+      },
+    }
+  );
+
+  return { rating: roundedAvg, ratingCount: count };
 }
 
 // Middleware
@@ -266,7 +297,7 @@ app.get('/api/admin/providers', requireAuth(['admin']), async (req, res) => {
     const [total, rows] = await Promise.all([
       UserModel.countDocuments(filter),
       UserModel.find(filter)
-        .select('uid profile.name profile.phone profile.location.district workerProfile.isOnline workerProfile.skills workerProfile.performance.rating createdAt')
+        .select('uid profile.name profile.phone profile.location.district workerProfile.isOnline workerProfile.skills workerProfile.performance.rating workerProfile.performance.ratingCount createdAt')
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(pageSize)
@@ -284,6 +315,7 @@ app.get('/api/admin/providers', requireAuth(['admin']), async (req, res) => {
           location: String(row?.profile?.location?.district || ''),
           isOnline: Boolean(row?.workerProfile?.isOnline),
           rating: Number(row?.workerProfile?.performance?.rating || 0),
+          ratingCount: Number(row?.workerProfile?.performance?.ratingCount || 0),
           skills: ((row?.workerProfile?.skills || []) as Array<any>).map((s) => String(s?.category || '')).filter(Boolean),
           createdAt: row.createdAt,
         })),
@@ -356,15 +388,18 @@ app.get('/api/admin/bookings', requireAuth(['admin']), async (req, res) => {
 
 app.get('/api/admin/reports', requireAuth(['admin']), async (_req, res) => {
   try {
-    const [totalJobs, completedJobs, cancelledJobs, pendingPayments, totalCustomers, totalProviders] = await Promise.all([
+    const [totalJobs, completedJobs, cancelledJobs, pendingPayments, totalCustomers, totalProviders, totalFeedback, avgRatingRows] = await Promise.all([
       JobModel.countDocuments({}),
       JobModel.countDocuments({ status: 'completed' }),
       JobModel.countDocuments({ status: 'cancelled' }),
       JobModel.countDocuments({ 'payment.status': { $in: ['pending', 'authorized'] } }),
       UserModel.countDocuments({ role: 'customer' }),
       UserModel.countDocuments({ role: 'worker' }),
+      CustomerFeedbackModel.countDocuments({}),
+      CustomerFeedbackModel.aggregate([{ $group: { _id: null, avg: { $avg: '$rating' } } }]),
     ]);
     const completionRate = totalJobs > 0 ? Number(((completedJobs / totalJobs) * 100).toFixed(1)) : 0;
+    const avgCustomerRating = Number(avgRatingRows?.[0]?.avg || 0).toFixed(1);
 
     return res.json({
       success: true,
@@ -376,11 +411,62 @@ app.get('/api/admin/reports', requireAuth(['admin']), async (_req, res) => {
         totalCustomers,
         totalProviders,
         completionRate,
+        totalFeedback,
+        avgCustomerRating: Number(avgCustomerRating),
       },
     });
   } catch (error) {
     console.error('Admin reports failed:', error);
     return res.status(500).json({ success: false, error: 'Failed to fetch reports' });
+  }
+});
+
+app.get('/api/admin/feedback', requireAuth(['admin']), async (req, res) => {
+  try {
+    const page = Math.max(1, Number(req.query.page || 1));
+    const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize || 20)));
+    const skip = (page - 1) * pageSize;
+
+    const [total, rows] = await Promise.all([
+      CustomerFeedbackModel.countDocuments({}),
+      CustomerFeedbackModel.find({})
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(pageSize)
+        .lean(),
+    ]);
+
+    const customerUids = [...new Set(rows.map((r) => r.customerUid).filter(Boolean))];
+    const providerUids = [...new Set(rows.map((r) => r.providerUid).filter(Boolean))];
+    const [customers, providers] = await Promise.all([
+      UserModel.find({ uid: { $in: customerUids }, role: 'customer' }).select('uid profile.name').lean(),
+      UserModel.find({ uid: { $in: providerUids }, role: 'worker' }).select('uid profile.name').lean(),
+    ]);
+    const customerMap = new Map(customers.map((c: any) => [String(c.uid), String(c.profile?.name || 'Customer')]));
+    const providerMap = new Map(providers.map((p: any) => [String(p.uid), String(p.profile?.name || 'Provider')]));
+
+    return res.json({
+      success: true,
+      data: {
+        items: rows.map((row) => ({
+          id: String(row._id),
+          jobId: row.jobId,
+          rating: Number(row.rating || 0),
+          feedback: String(row.feedback || ''),
+          customerUid: row.customerUid,
+          providerUid: row.providerUid,
+          customerName: customerMap.get(String(row.customerUid)) || 'Customer',
+          providerName: providerMap.get(String(row.providerUid)) || 'Provider',
+          createdAt: row.createdAt,
+        })),
+        total,
+        page,
+        pageSize,
+      },
+    });
+  } catch (error) {
+    console.error('Admin feedback fetch failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch customer feedback' });
   }
 });
 
@@ -767,6 +853,7 @@ app.get('/api/providers/:providerId/public-profile', async (req, res) => {
         title: (provider as any)?.workerProfile?.publicProfile?.title || 'Local service professional',
         location: [provider.profile?.location?.village, provider.profile?.location?.district].filter(Boolean).join(', '),
         rating: Number((provider as any)?.workerProfile?.performance?.rating || 0),
+        ratingCount: Number((provider as any)?.workerProfile?.performance?.ratingCount || 0),
         yearsExperience,
         hourlyRateFrom,
         avatarUrl: (provider as any)?.workerProfile?.publicProfile?.avatarUrl || '',
@@ -798,18 +885,57 @@ app.get('/api/providers/search', async (req, res) => {
           .map((x) => x.trim().toLowerCase())
           .filter((x) => ['en', 'ml', 'hi'].includes(x))
       : [];
+    const rawMinRating = req.query.minRating;
+    const parsedMinRating = rawMinRating !== undefined && String(rawMinRating).trim() !== ''
+      ? Number(rawMinRating)
+      : undefined;
+    if (parsedMinRating !== undefined && (!Number.isFinite(parsedMinRating) || parsedMinRating < 0 || parsedMinRating > 5)) {
+      return res.status(400).json({ success: false, error: 'minRating must be a number between 0 and 5' });
+    }
+
+    const rawLat = req.query.lat;
+    const rawLng = req.query.lng;
+    const rawRadiusKm = req.query.radiusKm;
+    const parsedLat = rawLat !== undefined && String(rawLat).trim() !== '' ? Number(rawLat) : undefined;
+    const parsedLng = rawLng !== undefined && String(rawLng).trim() !== '' ? Number(rawLng) : undefined;
+    const parsedRadiusKm = rawRadiusKm !== undefined && String(rawRadiusKm).trim() !== '' ? Number(rawRadiusKm) : undefined;
+
+    if ((parsedLat !== undefined && !Number.isFinite(parsedLat)) || (parsedLng !== undefined && !Number.isFinite(parsedLng))) {
+      return res.status(400).json({ success: false, error: 'lat and lng must be valid numbers' });
+    }
+    if (parsedLat !== undefined && (parsedLat < -90 || parsedLat > 90)) {
+      return res.status(400).json({ success: false, error: 'lat must be between -90 and 90' });
+    }
+    if (parsedLng !== undefined && (parsedLng < -180 || parsedLng > 180)) {
+      return res.status(400).json({ success: false, error: 'lng must be between -180 and 180' });
+    }
+    if ((parsedLat === undefined) !== (parsedLng === undefined)) {
+      return res.status(400).json({ success: false, error: 'lat and lng must be provided together' });
+    }
+    if (parsedRadiusKm !== undefined && (!Number.isFinite(parsedRadiusKm) || parsedRadiusKm < 1 || parsedRadiusKm > 50)) {
+      return res.status(400).json({ success: false, error: 'radiusKm must be between 1 and 50' });
+    }
+
     const query: ProviderSearchQuery = {
       q: req.query.q ? String(req.query.q) : undefined,
       category: req.query.category ? String(req.query.category) : undefined,
       languages: [...new Set(parsedLanguages)],
+      lat: parsedLat,
+      lng: parsedLng,
+      radiusKm: parsedRadiusKm ?? (parsedLat !== undefined ? 5 : undefined),
+      locationSource:
+        req.query.locationSource === 'gps' || req.query.locationSource === 'manual'
+          ? (req.query.locationSource as 'gps' | 'manual')
+          : undefined,
+      locationLabel: req.query.locationLabel ? String(req.query.locationLabel) : undefined,
       minPrice: req.query.minPrice ? Number(req.query.minPrice) : undefined,
       maxPrice: req.query.maxPrice ? Number(req.query.maxPrice) : undefined,
-      minRating: req.query.minRating ? Number(req.query.minRating) : undefined,
+      minRating: parsedMinRating,
       availableToday: req.query.availableToday === 'true',
       weekends: req.query.weekends === 'true',
       location: req.query.location ? String(req.query.location) : undefined,
       page: req.query.page ? Math.max(1, Number(req.query.page)) : 1,
-      pageSize: req.query.pageSize ? Math.max(1, Number(req.query.pageSize)) : 12,
+      pageSize: req.query.pageSize ? Math.min(30, Math.max(1, Number(req.query.pageSize))) : 12,
     };
 
     const mongoFilter: Record<string, unknown> = {
@@ -839,6 +965,11 @@ app.get('/api/providers/search', async (req, res) => {
       } else {
         mongoFilter.$or = locationMatch;
       }
+    }
+
+    if (query.lat !== undefined && query.lng !== undefined && query.radiusKm !== undefined) {
+      const radiusInRadians = query.radiusKm / 6378.1;
+      mongoFilter['profile.location.coordinates'] = { $geoWithin: { $centerSphere: [[query.lng, query.lat], radiusInRadians] } };
     }
 
     if (query.languages && query.languages.length > 0) {
@@ -888,7 +1019,7 @@ app.get('/api/providers/search', async (req, res) => {
     const [total, workers] = await Promise.all([
       UserModel.countDocuments(mongoFilter),
       UserModel.find(mongoFilter)
-        .select('profile.name profile.phone profile.location profile.language settings.language workerProfile.skills workerProfile.performance.rating workerProfile.isOnline workerProfile.publicProfile.languages')
+        .select('profile.name profile.phone profile.location profile.language settings.language workerProfile.skills workerProfile.performance.rating workerProfile.performance.ratingCount workerProfile.isOnline workerProfile.publicProfile.languages')
         .sort({ 'workerProfile.isOnline': -1, 'workerProfile.performance.rating': -1, updatedAt: -1 })
         .skip(skip)
         .limit(query.pageSize)
@@ -918,6 +1049,28 @@ app.get('/api/providers/search', async (req, res) => {
       if (availabilityDays.has(0) || availabilityDays.has(6)) availabilityTags.push('Weekends');
       if (availabilityTags.length === 0) availabilityTags.push('On request');
 
+      const coordinates = (worker?.profile?.location?.coordinates || []) as number[];
+      let distanceKm: number | undefined = undefined;
+      if (
+        query.lat !== undefined &&
+        query.lng !== undefined &&
+        Array.isArray(coordinates) &&
+        coordinates.length === 2 &&
+        Number.isFinite(Number(coordinates[0])) &&
+        Number.isFinite(Number(coordinates[1]))
+      ) {
+        const providerLng = Number(coordinates[0]);
+        const providerLat = Number(coordinates[1]);
+        const toRad = (deg: number) => (deg * Math.PI) / 180;
+        const dLat = toRad(providerLat - query.lat);
+        const dLng = toRad(providerLng - query.lng);
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRad(query.lat)) * Math.cos(toRad(providerLat)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distanceKm = Number((6371 * c).toFixed(1));
+      }
+
       return {
         id: String(worker._id),
         name: String(worker?.profile?.name || 'Provider'),
@@ -926,7 +1079,9 @@ app.get('/api/providers/search', async (req, res) => {
         skills: skills.map((s) => String(s?.category || '')).filter(Boolean),
         hourlyRateFrom: hourlyRates.length > 0 ? Math.min(...hourlyRates) : 0,
         rating: Number(worker?.workerProfile?.performance?.rating || 0),
+        ratingCount: Number(worker?.workerProfile?.performance?.ratingCount || 0),
         yearsExperience: years.length > 0 ? Math.max(...years) : 0,
+        distanceKm,
         district: String(worker?.profile?.location?.district || ''),
         locality: String(worker?.profile?.location?.village || worker?.profile?.location?.taluk || ''),
         languages:
@@ -937,6 +1092,16 @@ app.get('/api/providers/search', async (req, res) => {
         availabilityTags: [Boolean(worker?.workerProfile?.isOnline) ? 'Online now' : '', ...availabilityTags].filter(Boolean),
       };
     });
+
+    if (query.lat !== undefined && query.lng !== undefined) {
+      items.sort((a, b) => {
+        if (Number(b.isOnline) !== Number(a.isOnline)) return Number(b.isOnline) - Number(a.isOnline);
+        const distanceA = Number.isFinite(a.distanceKm as number) ? (a.distanceKm as number) : Number.MAX_SAFE_INTEGER;
+        const distanceB = Number.isFinite(b.distanceKm as number) ? (b.distanceKm as number) : Number.MAX_SAFE_INTEGER;
+        if (distanceA !== distanceB) return distanceA - distanceB;
+        return (b.rating || 0) - (a.rating || 0);
+      });
+    }
 
     const payload: ProviderSearchResponse = {
       items,
@@ -1122,6 +1287,82 @@ app.post('/api/bookings', requireAuth(['customer']), async (req, res) => {
   } catch (error) {
     console.error('Create booking failed:', error);
     return res.status(500).json({ success: false, error: 'Failed to create booking' });
+  }
+});
+
+app.post('/api/feedback', requireAuth(['customer']), async (req, res) => {
+  try {
+    const auth = (req as any).auth as AuthClaims;
+    const { customerUid, jobId, rating, feedback } = req.body as {
+      customerUid?: string;
+      jobId?: string;
+      rating?: number;
+      feedback?: string;
+    };
+
+    if (!customerUid || !jobId || typeof rating !== 'number') {
+      return res.status(400).json({ success: false, error: 'customerUid, jobId and numeric rating are required' });
+    }
+    if (auth.uid !== customerUid) {
+      return res.status(403).json({ success: false, error: 'Forbidden' });
+    }
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ success: false, error: 'rating must be between 1 and 5' });
+    }
+
+    const customer = await UserModel.findOne({ uid: customerUid, role: 'customer' }).select('_id uid profile.name').lean();
+    if (!customer) return res.status(404).json({ success: false, error: 'Customer not found' });
+
+    const job = await JobModel.findOne({ jobId }).select('jobId status customerId workerId').lean();
+    if (!job) return res.status(404).json({ success: false, error: 'Job not found' });
+    if (String(job.customerId) !== String(customer._id)) {
+      return res.status(403).json({ success: false, error: 'You can only submit feedback for your own jobs' });
+    }
+    if (job.status !== 'completed') {
+      return res.status(400).json({ success: false, error: 'Feedback can be submitted only after job completion' });
+    }
+
+    const provider = await UserModel.findOne({ _id: job.workerId, role: 'worker' }).select('uid profile.name').lean();
+    if (!provider?.uid) return res.status(404).json({ success: false, error: 'Provider not found' });
+
+    const cleanFeedback = String(feedback || '').trim().slice(0, 500);
+    const saved = await CustomerFeedbackModel.findOneAndUpdate(
+      { jobId: job.jobId, customerUid },
+      {
+        $set: {
+          providerUid: provider.uid,
+          rating,
+          feedback: cleanFeedback,
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    const aggregate = await recomputeProviderRating(provider.uid);
+
+    await createNotification({
+      recipientUid: provider.uid,
+      recipientRole: 'provider',
+      title: 'New customer feedback',
+      message: `${customer.profile?.name || 'A customer'} rated your completed job ${rating}/5.`,
+      type: 'system',
+      metadata: { jobId: job.jobId, rating },
+    });
+
+    return res.status(201).json({
+      success: true,
+      data: {
+        id: String(saved?._id || ''),
+        jobId: job.jobId,
+        rating,
+        ratingCount: aggregate.ratingCount,
+        feedback: cleanFeedback,
+        providerUid: provider.uid,
+      },
+    });
+  } catch (error) {
+    console.error('Create feedback failed:', error);
+    return res.status(500).json({ success: false, error: 'Failed to submit feedback' });
   }
 });
 

@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '../../auth-provider'
+import { LanguageSwitcher } from '../../language-switcher'
+import { useLocale } from '../../locale-provider'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3333'
 
@@ -25,15 +27,14 @@ type AdminOverview = {
     createdAt?: string;
   }>;
 }
-
-const REPORT_LABELS: Record<string, string> = {
-  totalJobs: 'Total jobs',
-  completedJobs: 'Completed jobs',
-  cancelledJobs: 'Cancelled jobs',
-  pendingPayments: 'Pending payments',
-  totalCustomers: 'Customers',
-  totalProviders: 'Providers',
-  completionRate: 'Completion rate %',
+type AdminFeedbackItem = {
+  id: string;
+  jobId: string;
+  rating: number;
+  feedback: string;
+  customerName: string;
+  providerName: string;
+  createdAt?: string;
 }
 
 function statusBadgeClass(status: string) {
@@ -45,6 +46,7 @@ function statusBadgeClass(status: string) {
 }
 
 export default function AdminDashboardPage() {
+  const { t } = useLocale()
   const { ready, adminSession, logout } = useAuth()
   const router = useRouter()
   const contentRef = useRef<HTMLDivElement>(null)
@@ -56,6 +58,7 @@ export default function AdminDashboardPage() {
   const [providers, setProviders] = useState<Array<any>>([])
   const [bookings, setBookings] = useState<Array<any>>([])
   const [reports, setReports] = useState<Record<string, number> | null>(null)
+  const [feedbackItems, setFeedbackItems] = useState<AdminFeedbackItem[]>([])
 
   const openPanel = (panel: Panel) => {
     setActivePanel(panel)
@@ -76,47 +79,65 @@ export default function AdminDashboardPage() {
       setError('')
       try {
         const headers = { Authorization: `Bearer ${adminSession.token}` }
-        const [overviewRes, customersRes, providersRes, bookingsRes, reportsRes] = await Promise.all([
+        const [overviewRes, customersRes, providersRes, bookingsRes, reportsRes, feedbackRes] = await Promise.all([
           fetch(`${API_BASE}/api/admin/overview`, { headers }),
           fetch(`${API_BASE}/api/admin/customers?page=1&pageSize=20`, { headers }),
           fetch(`${API_BASE}/api/admin/providers?page=1&pageSize=20`, { headers }),
           fetch(`${API_BASE}/api/admin/bookings?page=1&pageSize=20`, { headers }),
           fetch(`${API_BASE}/api/admin/reports`, { headers }),
+          fetch(`${API_BASE}/api/admin/feedback?page=1&pageSize=12`, { headers }),
         ])
-        if (!overviewRes.ok || !customersRes.ok || !providersRes.ok || !bookingsRes.ok || !reportsRes.ok) {
+        if (!overviewRes.ok || !customersRes.ok || !providersRes.ok || !bookingsRes.ok || !reportsRes.ok || !feedbackRes.ok) {
           throw new Error('One or more admin endpoints failed')
         }
-        const [overviewJson, customersJson, providersJson, bookingsJson, reportsJson] = await Promise.all([
+        const [overviewJson, customersJson, providersJson, bookingsJson, reportsJson, feedbackJson] = await Promise.all([
           overviewRes.json(),
           customersRes.json(),
           providersRes.json(),
           bookingsRes.json(),
           reportsRes.json(),
+          feedbackRes.json(),
         ])
         setOverview(overviewJson?.data || null)
         setCustomers(customersJson?.data?.items || [])
         setProviders(providersJson?.data?.items || [])
         setBookings(bookingsJson?.data?.items || [])
         setReports(reportsJson?.data || null)
+        setFeedbackItems(feedbackJson?.data?.items || [])
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load admin dashboard')
+        setError(err instanceof Error ? err.message : t('adminDashboard.loadFailed'))
       } finally {
         setLoading(false)
       }
     }
     run()
-  }, [adminSession?.token])
+  }, [adminSession?.token, t])
+
+  const reportLabels = useMemo(
+    () => ({
+      totalJobs: t('adminDashboard.reports.totalJobs'),
+      completedJobs: t('adminDashboard.reports.completedJobs'),
+      cancelledJobs: t('adminDashboard.reports.cancelledJobs'),
+      pendingPayments: t('adminDashboard.reports.pendingPayments'),
+      totalCustomers: t('adminDashboard.reports.totalCustomers'),
+      totalProviders: t('adminDashboard.reports.totalProviders'),
+      completionRate: t('adminDashboard.reports.completionRate'),
+      totalFeedback: t('adminDashboard.reports.totalFeedback'),
+      avgCustomerRating: t('adminDashboard.reports.avgCustomerRating'),
+    }),
+    [t]
+  )
 
   const panels = useMemo<Array<{ id: Panel; label: string; icon: string }>>(
     () => [
-      { id: 'overview', label: 'Overview', icon: 'dashboard' },
-      { id: 'customers', label: 'Customers', icon: 'group' },
-      { id: 'providers', label: 'Providers', icon: 'engineering' },
-      { id: 'bookings', label: 'Bookings', icon: 'event_note' },
-      { id: 'reports', label: 'Reports', icon: 'analytics' },
-      { id: 'settings', label: 'Settings', icon: 'settings' },
+      { id: 'overview', label: t('adminDashboard.panels.overview'), icon: 'dashboard' },
+      { id: 'customers', label: t('adminDashboard.panels.customers'), icon: 'group' },
+      { id: 'providers', label: t('adminDashboard.panels.providers'), icon: 'engineering' },
+      { id: 'bookings', label: t('adminDashboard.panels.bookings'), icon: 'event_note' },
+      { id: 'reports', label: t('adminDashboard.panels.reports'), icon: 'analytics' },
+      { id: 'settings', label: t('adminDashboard.panels.settings'), icon: 'settings' },
     ],
-    []
+    [t]
   )
 
   const adminName = adminSession?.name?.trim() || 'Admin'
@@ -125,7 +146,7 @@ export default function AdminDashboardPage() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-white via-emerald-50/30 to-teal-50/40 flex items-center justify-center font-body-md">
         <div className="rounded-2xl border border-emerald-100 bg-white/90 px-8 py-6 shadow-[0_10px_24px_rgba(30,70,32,0.08)]">
-          <p className="text-stone-600">Loading admin session…</p>
+          <p className="text-stone-600">{t('adminDashboard.loadingSession')}</p>
         </div>
       </div>
     )
@@ -136,9 +157,12 @@ export default function AdminDashboardPage() {
       {/* Desktop sidebar — aligned with customer dashboard */}
       <aside className="hidden lg:flex flex-col h-screen sticky top-0 py-8 px-4 w-64 border-r border-emerald-100 shadow-lg bg-white/80 backdrop-blur-xl font-['Inter'] tracking-tight">
         <div className="mb-8 px-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700/80">Workmate</p>
-          <h2 className="text-xl font-bold text-[#1E4620]">Admin</h2>
-          <p className="font-caption text-caption text-stone-500 mt-1">Operations &amp; monitoring</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700/80">{t('adminDashboard.brandTag')}</p>
+          <h2 className="text-xl font-bold text-[#1E4620]">{t('adminDashboard.roleTitle')}</h2>
+          <p className="font-caption text-caption text-stone-500 mt-1">{t('adminDashboard.tagline')}</p>
+          <div className="mt-3">
+            <LanguageSwitcher />
+          </div>
         </div>
         <nav className="flex flex-col gap-1 flex-1">
           {panels.map((panel) => (
@@ -168,7 +192,7 @@ export default function AdminDashboardPage() {
             href="/"
           >
             <span className="material-symbols-outlined text-lg">home</span>
-            Back to site
+            {t('adminDashboard.backToSite')}
           </a>
           <button
             className="w-full rounded-xl border border-emerald-100 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 hover:bg-emerald-50 transition-colors"
@@ -178,7 +202,7 @@ export default function AdminDashboardPage() {
               router.push('/auth/admin')
             }}
           >
-            Logout
+            {t('adminDashboard.logout')}
           </button>
         </div>
       </aside>
@@ -186,19 +210,22 @@ export default function AdminDashboardPage() {
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="lg:hidden flex items-center justify-between p-4 sticky top-0 bg-white/90 backdrop-blur-md z-10 border-b border-emerald-100/80">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">Admin</p>
-            <h1 className="font-h3 text-h3 text-primary">Workmate</h1>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-700">{t('adminDashboard.roleTitle')}</p>
+            <h1 className="font-h3 text-h3 text-primary">{t('adminDashboard.brandTag')}</h1>
           </div>
-          <button
-            className="rounded-xl border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold text-stone-700"
-            type="button"
-            onClick={() => {
-              logout('admin')
-              router.push('/auth/admin')
-            }}
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher />
+            <button
+              className="rounded-xl border border-emerald-100 bg-white px-3 py-2 text-xs font-semibold text-stone-700"
+              type="button"
+              onClick={() => {
+                logout('admin')
+                router.push('/auth/admin')
+              }}
+            >
+              {t('adminDashboard.logout')}
+            </button>
+          </div>
         </header>
 
         {/* Mobile tab strip */}
@@ -226,20 +253,20 @@ export default function AdminDashboardPage() {
               <div className="absolute -bottom-8 -left-8 h-32 w-32 rounded-full bg-teal-400/20 blur-xl pointer-events-none" />
               <div className="relative z-10 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
                 <div>
-                  <p className="text-emerald-100/90 text-xs font-semibold uppercase tracking-widest">Control center</p>
-                  <h1 className="font-h1 text-h1 text-white mt-1 tracking-tight">Hello, {adminName}</h1>
+                  <p className="text-emerald-100/90 text-xs font-semibold uppercase tracking-widest">{t('adminDashboard.hero.controlCenter')}</p>
+                  <h1 className="font-h1 text-h1 text-white mt-1 tracking-tight">{t('adminDashboard.hero.hello', { name: adminName })}</h1>
                   <p className="text-emerald-50/95 mt-2 max-w-xl text-sm md:text-base">
-                    Monitor customers, providers, and bookings at a glance — same experience as your customer dashboard, tuned for operations.
+                    {t('adminDashboard.hero.body')}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-medium backdrop-blur-sm">
                     <span className="material-symbols-outlined text-sm text-emerald-200">shield_person</span>
-                    Authenticated
+                    {t('adminDashboard.hero.badgeAuth')}
                   </span>
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-medium backdrop-blur-sm">
                     <span className="material-symbols-outlined text-sm text-emerald-200">database</span>
-                    Live data
+                    {t('adminDashboard.hero.badgeLive')}
                   </span>
                 </div>
               </div>
@@ -249,14 +276,14 @@ export default function AdminDashboardPage() {
               <div className="rounded-2xl border border-emerald-100 bg-white/90 p-8 shadow-sm">
                 <div className="flex items-center gap-3 text-stone-600">
                   <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-emerald-200 border-t-emerald-600" />
-                  <span>Loading dashboard data…</span>
+                  <span>{t('adminDashboard.loadingData')}</span>
                 </div>
               </div>
             ) : null}
 
             {error ? (
               <div className="rounded-2xl border border-red-200 bg-red-50/90 p-5 text-red-800 shadow-sm">
-                <p className="font-semibold">Could not load data</p>
+                <p className="font-semibold">{t('adminDashboard.errorTitle')}</p>
                 <p className="text-sm mt-1">{error}</p>
               </div>
             ) : null}
@@ -266,25 +293,25 @@ export default function AdminDashboardPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
                   {[
                     {
-                      label: 'Customers',
+                      label: t('adminDashboard.overview.kpiCustomers'),
                       value: overview.kpis.totalCustomers,
                       icon: 'group',
                       accent: 'from-teal-500/20 to-emerald-600/10',
                     },
                     {
-                      label: 'Providers',
+                      label: t('adminDashboard.overview.kpiProviders'),
                       value: overview.kpis.totalProviders,
                       icon: 'handyman',
                       accent: 'from-emerald-500/20 to-teal-600/10',
                     },
                     {
-                      label: 'Bookings',
+                      label: t('adminDashboard.overview.kpiBookings'),
                       value: overview.kpis.totalBookings,
                       icon: 'calendar_month',
                       accent: 'from-emerald-600/15 to-emerald-400/10',
                     },
                     {
-                      label: 'Completed',
+                      label: t('adminDashboard.overview.kpiCompleted'),
                       value: overview.kpis.completedBookings,
                       icon: 'task_alt',
                       accent: 'from-teal-600/20 to-emerald-500/10',
@@ -315,10 +342,10 @@ export default function AdminDashboardPage() {
                   <div className="relative z-10">
                     <h2 className="font-h3 text-h3 text-on-background mb-4 flex items-center gap-2">
                       <span className="material-symbols-outlined text-primary-container">history</span>
-                      Recent activity
+                      {t('adminDashboard.overview.recentActivity')}
                     </h2>
                     {overview.recentActivity.length === 0 ? (
-                      <p className="text-sm text-on-surface-variant">No recent bookings yet.</p>
+                      <p className="text-sm text-on-surface-variant">{t('adminDashboard.overview.noRecentBookings')}</p>
                     ) : (
                       <ul className="space-y-2">
                         {overview.recentActivity.map((row) => (
@@ -332,7 +359,7 @@ export default function AdminDashboardPage() {
                                 <span className="text-on-surface-variant font-normal"> · {row.serviceName}</span>
                               </p>
                               <p className="text-xs text-on-surface-variant mt-0.5">
-                                with {row.providerName}
+                                {t('adminDashboard.overview.withProvider', { provider: row.providerName })}
                               </p>
                             </div>
                             <span
@@ -346,6 +373,35 @@ export default function AdminDashboardPage() {
                     )}
                   </div>
                 </section>
+                <section className="bg-white/90 rounded-2xl border border-emerald-100 shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50/50 to-white">
+                    <h2 className="font-h3 text-h3 text-on-surface flex items-center gap-2">
+                      <span className="material-symbols-outlined text-emerald-700">feedback</span>
+                      {t('adminDashboard.overview.feedbackTitle')}
+                    </h2>
+                    <p className="text-sm text-on-surface-variant mt-1">{t('adminDashboard.overview.feedbackSubtitle')}</p>
+                  </div>
+                  <div className="p-3 space-y-2">
+                    {feedbackItems.length === 0 ? (
+                      <p className="px-2 py-3 text-sm text-on-surface-variant">No feedback submitted yet.</p>
+                    ) : (
+                      feedbackItems.slice(0, 6).map((item) => (
+                        <div key={item.id} className="rounded-xl border border-emerald-100 bg-white px-3 py-2">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-on-background">
+                              {item.customerName} → {item.providerName}
+                            </p>
+                            <span className="text-xs rounded-full border border-amber-200 bg-amber-50 px-2 py-1 font-semibold text-amber-900">
+                              {item.rating}/5
+                            </span>
+                          </div>
+                          <p className="mt-1 text-xs text-stone-600">{item.feedback || t('adminDashboard.overview.noComments')}</p>
+                          <p className="mt-1 text-[11px] text-stone-400">{t('adminDashboard.overview.jobLine', { jobId: item.jobId })}{item.createdAt ? new Date(item.createdAt).toLocaleString() : ''}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
               </div>
             ) : null}
 
@@ -354,24 +410,24 @@ export default function AdminDashboardPage() {
                 <div className="px-5 py-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50/50 to-white">
                   <h2 className="font-h3 text-h3 text-on-surface flex items-center gap-2">
                     <span className="material-symbols-outlined text-emerald-700">group</span>
-                    Customers
+                    {t('adminDashboard.customers.title')}
                   </h2>
-                  <p className="text-sm text-on-surface-variant mt-1">Registered customer accounts</p>
+                  <p className="text-sm text-on-surface-variant mt-1">{t('adminDashboard.customers.subtitle')}</p>
                 </div>
                 <div className="overflow-x-auto p-2">
                   <table className="w-full text-sm min-w-[520px]">
                     <thead>
                       <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-stone-500">
-                        <th className="px-4 py-3">Name</th>
-                        <th className="px-4 py-3">Phone</th>
-                        <th className="px-4 py-3">Location</th>
+                        <th className="px-4 py-3">{t('adminDashboard.customers.name')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.customers.phone')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.customers.location')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {customers.length === 0 ? (
                         <tr>
                           <td colSpan={3} className="px-4 py-8 text-center text-on-surface-variant">
-                            No customers found.
+                            {t('adminDashboard.customers.empty')}
                           </td>
                         </tr>
                       ) : (
@@ -397,25 +453,25 @@ export default function AdminDashboardPage() {
                 <div className="px-5 py-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50/50 to-white">
                   <h2 className="font-h3 text-h3 text-on-surface flex items-center gap-2">
                     <span className="material-symbols-outlined text-emerald-700">engineering</span>
-                    Providers
+                    {t('adminDashboard.providers.title')}
                   </h2>
-                  <p className="text-sm text-on-surface-variant mt-1">Worker profiles and availability</p>
+                  <p className="text-sm text-on-surface-variant mt-1">{t('adminDashboard.providers.subtitle')}</p>
                 </div>
                 <div className="overflow-x-auto p-2">
                   <table className="w-full text-sm min-w-[600px]">
                     <thead>
                       <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-stone-500">
-                        <th className="px-4 py-3">Name</th>
-                        <th className="px-4 py-3">Phone</th>
-                        <th className="px-4 py-3">Skills</th>
-                        <th className="px-4 py-3">Status</th>
+                        <th className="px-4 py-3">{t('adminDashboard.providers.name')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.providers.phone')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.providers.skills')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.providers.status')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {providers.length === 0 ? (
                         <tr>
                           <td colSpan={4} className="px-4 py-8 text-center text-on-surface-variant">
-                            No providers found.
+                            {t('adminDashboard.providers.empty')}
                           </td>
                         </tr>
                       ) : (
@@ -437,7 +493,7 @@ export default function AdminDashboardPage() {
                                     : 'bg-stone-50 text-stone-600 border-stone-200'
                                 }`}
                               >
-                                {p.isOnline ? 'Online' : 'Offline'}
+                                {p.isOnline ? t('adminDashboard.providers.online') : t('adminDashboard.providers.offline')}
                               </span>
                             </td>
                           </tr>
@@ -454,26 +510,26 @@ export default function AdminDashboardPage() {
                 <div className="px-5 py-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50/50 to-white">
                   <h2 className="font-h3 text-h3 text-on-surface flex items-center gap-2">
                     <span className="material-symbols-outlined text-emerald-700">event_note</span>
-                    Bookings
+                    {t('adminDashboard.bookings.title')}
                   </h2>
-                  <p className="text-sm text-on-surface-variant mt-1">Latest jobs and payment state</p>
+                  <p className="text-sm text-on-surface-variant mt-1">{t('adminDashboard.bookings.subtitle')}</p>
                 </div>
                 <div className="overflow-x-auto p-2">
                   <table className="w-full text-sm min-w-[720px]">
                     <thead>
                       <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-stone-500">
-                        <th className="px-4 py-3">Service</th>
-                        <th className="px-4 py-3">Customer</th>
-                        <th className="px-4 py-3">Provider</th>
-                        <th className="px-4 py-3">Status</th>
-                        <th className="px-4 py-3">Payment</th>
+                        <th className="px-4 py-3">{t('adminDashboard.bookings.service')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.bookings.customer')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.bookings.provider')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.bookings.status')}</th>
+                        <th className="px-4 py-3">{t('adminDashboard.bookings.payment')}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {bookings.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="px-4 py-8 text-center text-on-surface-variant">
-                            No bookings found.
+                            {t('adminDashboard.bookings.empty')}
                           </td>
                         </tr>
                       ) : (
@@ -515,7 +571,7 @@ export default function AdminDashboardPage() {
                   >
                     <div className="absolute -right-4 -top-4 h-20 w-20 rounded-full bg-emerald-200/30 blur-xl pointer-events-none" />
                     <p className="text-xs font-bold uppercase tracking-wider text-stone-500 relative">
-                      {REPORT_LABELS[key] || key.replace(/([A-Z])/g, ' $1').trim()}
+                      {reportLabels[key as keyof typeof reportLabels] || key.replace(/([A-Z])/g, ' $1').trim()}
                     </p>
                     <p className="mt-2 text-3xl font-bold text-[#1E4620] tabular-nums relative">
                       {typeof value === 'number' && key === 'completionRate' ? `${value}%` : value}
@@ -529,27 +585,22 @@ export default function AdminDashboardPage() {
               <section className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-white via-emerald-50/40 to-white p-6 md:p-8 shadow-[0_10px_24px_rgba(30,70,32,0.06)]">
                 <h2 className="font-h3 text-h3 text-on-background flex items-center gap-2 mb-2">
                   <span className="material-symbols-outlined text-emerald-700">settings</span>
-                  Settings
+                  {t('adminDashboard.settings.title')}
                 </h2>
                 <p className="text-sm text-on-surface-variant max-w-lg">
-                  System controls can be added here. You are signed in as{' '}
-                  <span className="font-semibold text-emerald-900">{adminName}</span>
-                  {adminSession.phone ? (
-                    <>
-                      {' '}
-                      · <span className="tabular-nums">{adminSession.phone}</span>
-                    </>
-                  ) : null}
-                  .
+                  {t('adminDashboard.settings.intro', {
+                    name: adminName,
+                    phone: adminSession.phone ? ` · ${adminSession.phone}` : '',
+                  })}
                 </p>
                 <div className="mt-6 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl border border-emerald-100 bg-white/80 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">API base</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{t('adminDashboard.settings.apiBase')}</p>
                     <p className="mt-1 text-sm font-mono text-stone-800 break-all">{API_BASE}</p>
                   </div>
                   <div className="rounded-xl border border-emerald-100 bg-white/80 p-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">Session</p>
-                    <p className="mt-1 text-sm text-stone-700">Admin · JWT in browser storage</p>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-stone-500">{t('adminDashboard.settings.session')}</p>
+                    <p className="mt-1 text-sm text-stone-700">{t('adminDashboard.settings.sessionValue')}</p>
                   </div>
                 </div>
               </section>

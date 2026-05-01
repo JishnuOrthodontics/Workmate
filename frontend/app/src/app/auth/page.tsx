@@ -4,11 +4,14 @@ import { Suspense, useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { clearAllSessions, loginUser, registerUser, setSession } from '../../lib/auth-client'
 import { useAuth } from '../auth-provider'
+import { LanguageSwitcher } from '../language-switcher'
+import { useLocale } from '../locale-provider'
 
 type Role = 'customer' | 'provider'
 type Mode = 'login' | 'register'
 
 function AuthPageContent() {
+  const { t } = useLocale()
   const { refresh } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -51,21 +54,21 @@ function AuthPageContent() {
     e.preventDefault()
     setError('')
     if (!phone.trim() || !password.trim()) {
-      setError('Phone and password are required.')
+      setError(t('auth.errors.phonePasswordRequired'))
       return
     }
 
     if (mode === 'register') {
       if (!name.trim()) {
-        setError('Full name is required for registration.')
+        setError(t('auth.errors.nameRequired'))
         return
       }
       if (role === 'customer' && !location.trim()) {
-        setError('Location is required for customer registration.')
+        setError(t('auth.errors.locationRequired'))
         return
       }
       if (role === 'provider' && !service.trim()) {
-        setError('Primary service is required for provider registration.')
+        setError(t('auth.errors.serviceRequired'))
         return
       }
     }
@@ -119,7 +122,7 @@ function AuthPageContent() {
       refresh()
       router.push(nextPath || '/provider/dashboard')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Authentication failed')
+      setError(err instanceof Error ? err.message : t('auth.errors.authFailed'))
     } finally {
       setIsSubmitting(false)
     }
@@ -127,11 +130,14 @@ function AuthPageContent() {
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-emerald-900 via-emerald-700 to-teal-600 flex items-center justify-center p-6 relative overflow-hidden">
+      <div className="absolute right-4 top-4 z-20 md:right-8 md:top-8">
+        <LanguageSwitcher />
+      </div>
       <div className="absolute -top-20 -left-20 h-72 w-72 rounded-full bg-white/10 blur-3xl"></div>
       <div className="absolute -bottom-24 -right-20 h-72 w-72 rounded-full bg-teal-200/20 blur-3xl"></div>
       <div className="w-full max-w-md bg-white/95 backdrop-blur rounded-2xl border border-white/70 p-6 shadow-2xl relative z-10">
-        <h1 className="font-h2 text-h2 text-emerald-900 mb-2">Login to Workmate</h1>
-        <p className="text-stone-600 mb-6">Sign in or register as a customer or provider.</p>
+        <h1 className="font-h2 text-h2 text-emerald-900 mb-2">{t('auth.page.title')}</h1>
+        <p className="text-stone-600 mb-6">{t('auth.page.subtitle')}</p>
 
         <div className="flex gap-2 mb-3 p-1 bg-emerald-50 rounded-xl">
           <button
@@ -139,14 +145,14 @@ function AuthPageContent() {
             onClick={() => setRoleAndSyncUrl('customer')}
             type="button"
           >
-            Customer
+            {t('auth.page.customer')}
           </button>
           <button
             className={`flex-1 rounded-lg py-2 font-label-md transition-colors ${role === 'provider' ? 'bg-gradient-to-r from-emerald-700 to-emerald-500 text-white shadow-sm' : 'text-stone-700'}`}
             onClick={() => setRoleAndSyncUrl('provider')}
             type="button"
           >
-            Provider
+            {t('auth.page.provider')}
           </button>
         </div>
 
@@ -156,14 +162,14 @@ function AuthPageContent() {
             onClick={() => setMode('login')}
             type="button"
           >
-            Login
+            {t('auth.page.login')}
           </button>
           <button
             className={`flex-1 rounded-xl py-2 font-label-md transition-colors ${mode === 'register' ? 'bg-emerald-900 text-white' : 'bg-stone-100 text-stone-700'}`}
             onClick={() => setMode('register')}
             type="button"
           >
-            Register
+            {t('auth.page.register')}
           </button>
         </div>
 
@@ -172,7 +178,7 @@ function AuthPageContent() {
             <input
               className="w-full rounded-xl border border-emerald-100 px-3 py-2 focus:border-emerald-400 focus:ring-emerald-300"
               onChange={(e) => setName(e.target.value)}
-              placeholder="Full name"
+              placeholder={t('auth.page.fullName')}
               type="text"
               value={name}
             />
@@ -181,14 +187,14 @@ function AuthPageContent() {
           <input
             className="w-full rounded-xl border border-emerald-100 px-3 py-2 focus:border-emerald-400 focus:ring-emerald-300"
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="Phone number"
+            placeholder={t('auth.page.phone')}
             type="tel"
             value={phone}
           />
           <input
             className="w-full rounded-xl border border-emerald-100 px-3 py-2 focus:border-emerald-400 focus:ring-emerald-300"
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
+            placeholder={t('auth.page.password')}
             type="password"
             value={password}
           />
@@ -197,7 +203,7 @@ function AuthPageContent() {
             <input
               className="w-full rounded-xl border border-emerald-100 px-3 py-2 focus:border-emerald-400 focus:ring-emerald-300"
               onChange={(e) => setLocation(e.target.value)}
-              placeholder="Location"
+              placeholder={t('auth.page.location')}
               type="text"
               value={location}
             />
@@ -207,7 +213,7 @@ function AuthPageContent() {
             <input
               className="w-full rounded-xl border border-emerald-100 px-3 py-2 focus:border-emerald-400 focus:ring-emerald-300"
               onChange={(e) => setService(e.target.value)}
-              placeholder="Primary service (e.g. Plumbing)"
+              placeholder={t('auth.page.primaryService')}
               type="text"
               value={service}
             />
@@ -217,10 +223,14 @@ function AuthPageContent() {
 
           <button className="w-full rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-500 text-white py-2 font-label-md shadow-lg hover:opacity-95 disabled:opacity-70" disabled={isSubmitting} type="submit">
             {isSubmitting
-              ? 'Please wait...'
+              ? t('auth.page.pleaseWait')
               : mode === 'login'
-              ? `Login as ${role === 'customer' ? 'Customer' : 'Provider'}`
-              : `Register as ${role === 'customer' ? 'Customer' : 'Provider'}`}
+              ? role === 'customer'
+                ? t('auth.page.loginAsCustomer')
+                : t('auth.page.loginAsProvider')
+              : role === 'customer'
+              ? t('auth.page.registerAsCustomer')
+              : t('auth.page.registerAsProvider')}
           </button>
         </form>
       </div>
@@ -228,9 +238,14 @@ function AuthPageContent() {
   )
 }
 
+function AuthPageSuspenseFallback() {
+  const { t } = useLocale()
+  return <div className="p-6 text-stone-600">{t('auth.page.loading')}</div>
+}
+
 export default function AuthPage() {
   return (
-    <Suspense fallback={<div className="p-6 text-stone-600">Loading auth...</div>}>
+    <Suspense fallback={<AuthPageSuspenseFallback />}>
       <AuthPageContent />
     </Suspense>
   )

@@ -4,11 +4,28 @@
 
 ---
 
+## Recent updates
+
+### Bilingual UI (English / Malayalam)
+
+- **Client i18n**: `LocaleProvider` and `useLocale()` expose `locale`, `setLocale`, and `t('dotted.key', { var })`. Copy lives in `frontend/app/src/i18n/messages/en.json` and `ml.json`, resolved via `get-message.ts` with `{placeholder}` interpolation.
+- **Persistence & URL**: Preferred language is stored in `localStorage`; the app also honors optional `?lang=en` or `?lang=ml` on first load (see `locale-provider.tsx`).
+- **Language switcher**: `LanguageSwitcher` appears in the shell of major flows (home, auth, search, customer/provider/admin dashboards, profile, and the standalone provider profile editor) so users can switch without leaving the page.
+- **Malayalam typography**: `html[lang]` / `data-locale` stay in sync (`locale-document-sync.tsx`); **Noto Sans Malayalam** is loaded for readable Malayalam body text when the site locale is `ml`.
+
+### Location-aware provider search
+
+- **Search (`/search`)** supports **GPS or manual coordinates**, a **radius in km** (with sane bounds), and query-string persistence (`lat`, `lng`, `radiusKm`, etc.) so results can be ordered and filtered by distance where the API supports it.
+- **Customer dashboard** includes an entry point to set or reuse a **service location** for search, aligned with the above query model.
+
+---
+
 ## Features
 
 ### Platform & experience
 
 - **Responsive UI** with Tailwind-style theming, Material Symbols, and Inter typography (`frontend/app`).
+- **Site languages**: customer-facing UI strings are available in **English** and **Malayalam** (see **Recent updates** for implementation details).
 - **Dual-role product**: same deployment serves **customers** and **service providers** with separate sessions.
 - **Session model**: customer, provider, and **admin** sessions live in **browser `localStorage`** (`workmate_customer_auth`, `workmate_provider_auth`, `workmate_admin_auth`) with JWT from auth; `AuthProvider` exposes `customerSession`, `providerSession`, `adminSession`, and `activeRole` (**admin** takes precedence when present, then provider, then customer).
 - **Post-login redirects**: `/auth` supports `?next=` so flows like “book this provider” return after login.
@@ -22,12 +39,22 @@
 ### Customer
 
 - **Home (`/`)**: hero, service search box, links to search and login/dashboard.
-- **Provider search (`/search`)**: live results from `GET /api/providers/search` with filters — text query, location, category (e.g. Plumbing / Electrical / Carpentry), price band, minimum rating, **available today**, **weekends**, pagination; shows **Online now** when `isOnline` is true.
+- **Provider search (`/search`)**: live results from `GET /api/providers/search` with filters — text query, location (including **coordinates + radius** for nearby results), category (e.g. Plumbing / Electrical / Carpentry), price band, minimum rating, **available today**, **weekends**, pagination; shows **Online now** when `isOnline` is true.
 - **Navigation**: logged-in customers see **My Dashboard** in the header where configured; **Home** is de-emphasized in places to reduce accidental navigation away from tasks.
 - **Profile / booking (`/profile`)**:
   - **Without `providerId`**: **My Account** — load/save profile via `GET/PATCH /api/customers/:uid/profile` (name, phone, location, language, SMS/WhatsApp/push preferences).
   - **With `providerId`**: choose service name, date, time → **create booking** → **start PhonePe payment session** via gateway proxy; guests are sent to `/auth` with `next` preserved.
-- **Customer dashboard (`/dashboard`)**: booking list with **payment status**, **status filters** (all / requested / active / completed), **cancel** via `PATCH /api/bookings/:jobId/status`, **notification bell** with unread count and **mark read**.
+- **Customer dashboard (`/dashboard`)**: booking list with **payment status**, **status filters** (all / requested / active / completed), **cancel** via `PATCH /api/bookings/:jobId/status`, **notification bell** with unread count and **mark read**; for **completed** jobs, customers can submit a **star rating** and optional short comment (wired to **`POST /api/feedback`** on the gateway).
+
+### Provider ratings & customer feedback
+
+Ratings are **derived from post-job customer feedback**, not manually edited by providers.
+
+- **When**: Only after the booking’s job status is **`completed`**. The authenticated **customer** must own the job (`customerId` matches).
+- **What is stored**: Each row in the **`CustomerFeedback`** Mongo collection ties **`jobId` + `customerUid`** (unique together), **`providerUid`**, an integer **`rating` from 1 to 5**, and optional **`feedback`** text (trimmed, max **500** characters). Submitting again for the same job **upserts** that row (one rating per customer per completed job).
+- **How the public score is computed**: After each successful submit, the API gateway runs an aggregation over all feedback for that **`providerUid`** — **average rating** (rounded to **one decimal**) and **count** of feedback rows — then writes them to the provider user document as **`workerProfile.performance.rating`**, **`workerProfile.performance.ratingCount`**, and **`workerProfile.performance.ratingUpdatedAt`** (`recomputeProviderRating` in the gateway).
+- **Where it shows up**: **`GET /api/providers/search`** returns `rating` / `ratingCount` from those fields, applies an optional **`minRating`** filter, and sorts results with **online** providers first, then **higher rating**, then **`updatedAt`**. Provider cards on **`/search`**, public **`/profile?providerId=`**, and the **admin** providers list use the same denormalized values.
+- **Provider notification**: A **system** notification is created for the provider when new feedback is submitted (includes job id and the **1–5** score in the message).
 
 ### Provider
 
@@ -49,6 +76,7 @@ Persisted notifications and **GET/PATCH** APIs on the gateway. Typical triggers:
 
 - Provider **online/offline** toggle.
 - **New booking** and **booking status** changes.
+- **Customer feedback** after a completed job (**POST /api/feedback**).
 - **Payment captured/failed** (from payment-service webhook).
 - **Weekly payout** line items / batch completion.
 
@@ -179,7 +207,8 @@ Optional smoke test (Git Bash / macOS / Linux): `./test-local.sh`
 ### API gateway (`:3333`)
 
 - `GET /api/admin/overview` · `GET /api/admin/customers` · `GET /api/admin/providers` · `GET /api/admin/bookings` · `GET /api/admin/reports` — **require JWT role `admin`**
-- `GET /api/providers/search` — includes `isOnline`; online providers rank higher; **available today** can match online providers.
+- `GET /api/providers/search` — includes `isOnline`; online providers rank higher; **available today** can match online providers. Optional **`lat` / `lng` / `radiusKm`** (when validated) support nearby filtering/ranking; optional **`minRating`** filters on **`workerProfile.performance.rating`** (see **Provider ratings & customer feedback**).
+- `POST /api/feedback` — **customer JWT**; body `customerUid`, `jobId`, `rating` (1–5), optional `feedback`; job must be **completed**; upserts **`CustomerFeedback`** and recomputes provider **`rating`** / **`ratingCount`** on the worker profile.
 - `GET /api/providers/:providerUid/availability`
 - `PATCH /api/providers/:providerUid/availability` — body `{ "isOnline": true|false }`
 - `GET /api/customers/:customerUid/profile`
@@ -208,7 +237,7 @@ Same payment and payout routes as implemented in code (gateway proxies for a sin
 
 ```text
 d4dent-rural-services/
-├── frontend/app/                  # Next.js UI
+├── frontend/app/                  # Next.js UI (`src/i18n/` message catalogs + helpers)
 ├── backend/apps/
 │   ├── api/                       # API gateway
 │   ├── auth-service/              # Auth

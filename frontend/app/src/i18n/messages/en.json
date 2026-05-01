@@ -1,0 +1,580 @@
+{
+  "nav": {
+    "home": "Home",
+    "searchProviders": "Search Providers",
+    "siteLanguage": "Site language",
+    "login": "Login",
+    "dashboard": "Dashboard",
+    "backToHome": "Back to home"
+  },
+  "home": {
+    "hero": {
+      "badge": "Kerala's Local Home Service Network",
+      "title": "Trusted Local Professionals for Every Home Need.",
+      "subtitle": "Search verified electricians, plumbers, cleaners and more across Kerala. Book quickly with clear pricing and reliable support.",
+      "searchPlaceholder": "What service do you need?",
+      "findHelp": "Find Help",
+      "searchProviders": "Search Providers",
+      "goToDashboard": "Go to Dashboard",
+      "loginToContinue": "Login to Continue",
+      "pillVerified": "Verified Providers",
+      "pillPricing": "Transparent Pricing",
+      "pillFast": "Fast Response",
+      "cardTitle": "Verified Professionals",
+      "cardSubtitle": "Background checked & trained"
+    },
+    "problem": {
+      "card1Title": "Finding Reliable Help is Hard",
+      "card1Body": "Workmate lists verified local professionals with ratings and experience.",
+      "card2Title": "Unclear Pricing Creates Doubt",
+      "card2Body": "Compare provider profiles, service rates, and choose confidently.",
+      "card3Title": "Delays Affect Daily Life",
+      "card3Body": "Book quickly and track service progress from your dashboard."
+    },
+    "discovery": {
+      "title": "Find the Right Service Fast",
+      "subtitle": "Popular categories with starting prices and quick response times.",
+      "electrical": "Electrical",
+      "electricalMeta": "Starting ₹350 • Response in 30-60 min",
+      "electricalCta": "Search Electricians ->",
+      "plumbing": "Plumbing",
+      "plumbingMeta": "Starting ₹300 • Same day availability",
+      "plumbingCta": "Search Plumbers ->",
+      "cleaning": "Home Cleaning",
+      "cleaningMeta": "Starting ₹500 • Verified teams",
+      "cleaningCta": "Search Cleaning Pros ->"
+    },
+    "how": {
+      "title": "How Workmate Works",
+      "step1Title": "1. Search Service",
+      "step1Body": "Enter your need and location to discover relevant local providers.",
+      "step2Title": "2. Choose Verified Pro",
+      "step2Body": "Compare ratings, experience, and pricing before you decide.",
+      "step3Title": "3. Book & Track",
+      "step3Body": "Confirm booking and follow updates in your customer dashboard."
+    },
+    "trust": {
+      "trustTitle": "Trust & Safety First",
+      "trustLi1": "- Provider verification and profile checks",
+      "trustLi2": "- Transparent service pricing visibility",
+      "trustLi3": "- In-app support and issue escalation options",
+      "whyTitle": "Why Customers Choose Us",
+      "whyBody": "Built for real local needs with dependable professionals and clear booking flow."
+    },
+    "metrics": {
+      "jobs": "Jobs Completed",
+      "rating": "Avg Customer Rating",
+      "providers": "Verified Providers",
+      "repeat": "Repeat Customers"
+    },
+    "testimonials": {
+      "title": "What Customers Say",
+      "q1": "\"Booked a plumber in under 10 minutes. Great service and clear pricing.\"",
+      "a1": "Anjali, Kochi • Plumbing",
+      "q2": "\"The electrician arrived on time and fixed everything quickly.\"",
+      "a2": "Ramesh, Palakkad • Electrical",
+      "q3": "\"Very smooth booking and trustworthy professionals.\"",
+      "a3": "Nisha, Thrissur • Home Cleaning"
+    },
+    "cta": {
+      "title": "Ready to Book a Trusted Home Service?",
+      "subtitle": "Search providers now or login to manage your bookings.",
+      "startSearching": "Start Searching",
+      "openDashboard": "Open Dashboard",
+      "loginRegister": "Login / Register"
+    },
+    "footer": {
+      "about": "About Us",
+      "contact": "Contact",
+      "privacy": "Privacy Policy",
+      "terms": "Terms of Service",
+      "partners": "Service Partners",
+      "copyright": "© 2024 Workmate Kerala • Customer support available across Kerala.",
+      "staffSignIn": "Staff sign-in"
+    },
+    "mobileNav": {
+      "home": "Home",
+      "search": "Search",
+      "services": "Services",
+      "login": "Login"
+    }
+  },
+  "auth": {
+    "page": {
+      "title": "Login to Workmate",
+      "subtitle": "Sign in or register as a customer or provider.",
+      "customer": "Customer",
+      "provider": "Provider",
+      "login": "Login",
+      "register": "Register",
+      "fullName": "Full name",
+      "phone": "Phone number",
+      "password": "Password",
+      "location": "Location",
+      "primaryService": "Primary service (e.g. Plumbing)",
+      "pleaseWait": "Please wait...",
+      "loginAsCustomer": "Login as Customer",
+      "loginAsProvider": "Login as Provider",
+      "registerAsCustomer": "Register as Customer",
+      "registerAsProvider": "Register as Provider",
+      "loading": "Loading auth..."
+    },
+    "errors": {
+      "phonePasswordRequired": "Phone and password are required.",
+      "nameRequired": "Full name is required for registration.",
+      "locationRequired": "Location is required for customer registration.",
+      "serviceRequired": "Primary service is required for provider registration.",
+      "authFailed": "Authentication failed"
+    },
+    "admin": {
+      "brand": "Workmate",
+      "title": "Platform sign-in",
+      "subtitle": "Authorized staff only",
+      "phone": "Phone number",
+      "password": "Password",
+      "signingIn": "Signing in…",
+      "signIn": "Sign in",
+      "loading": "Loading…",
+      "backHome": "← Back to home"
+    }
+  },
+  "search": {
+    "currentLocation": "Current location",
+    "placeholders": {
+      "services": "Search services...",
+      "area": "Search by city / area",
+      "mobileQuery": "Search providers or services..."
+    },
+    "myDashboard": "My Dashboard",
+    "filters": {
+      "title": "Filters",
+      "clearAll": "Clear all",
+      "category": "Category",
+      "providerLanguages": "Provider languages",
+      "langEnglish": "English",
+      "langMalayalam": "Malayalam",
+      "langHindi": "Hindi",
+      "priceRange": "Price Range (₹)",
+      "min": "Min",
+      "max": "Max",
+      "minRating": "Minimum Rating",
+      "anyRating": "Any rating",
+      "ratingUp": "{rating} & up",
+      "availability": "Availability",
+      "availableToday": "Available Today",
+      "weekends": "Weekends"
+    },
+    "categories": {
+      "plumbing": "Plumbing",
+      "electrical": "Electrical",
+      "carpentry": "Carpentry"
+    },
+    "results": {
+      "filteredTitle": "Filtered Provider Results",
+      "nearYouTitle": "Search Providers Near You",
+      "showing": "Showing {total} verified professionals",
+      "withinKm": " within {radius} km",
+      "loading": "Loading providers...",
+      "errorPrefix": "Failed to load:",
+      "fetchError": "Failed to fetch providers",
+      "empty": "No providers matched your filters. Try widening your search.",
+      "emptyNearby": " No providers found within {radius} km, try 10 or 20 km."
+    },
+    "card": {
+      "verified": "Verified",
+      "kmAway": "{distance} km away",
+      "onlineNow": "Online now",
+      "yrsExp": "{years} yrs exp.",
+      "perHour": "/hr",
+      "viewBook": "View & Book"
+    },
+    "pagination": {
+      "pageOf": "Page {page} of {total}"
+    },
+    "mobile": {
+      "dashboard": "Dashboard",
+      "bookings": "Bookings",
+      "account": "Account"
+    },
+    "loadingPage": "Loading search..."
+  },
+  "customerDashboard": {
+    "brand": "Namaskaram",
+    "tagline": "Manage your home services",
+    "nav": {
+      "searchProviders": "Search Providers",
+      "dashboard": "Customer Dashboard",
+      "account": "My Account",
+      "logout": "Logout"
+    },
+    "welcome": {
+      "title": "Namaskaram, {name}.",
+      "subtitle": "Your home is in good hands. Here's what's happening today."
+    },
+    "notifications": {
+      "title": "Notifications",
+      "unread": "{count} unread",
+      "empty": "No notifications yet."
+    },
+    "bookings": {
+      "recentTitle": "My Recent Bookings",
+      "filterAll": "All",
+      "filterRequested": "Requested",
+      "filterActive": "Active",
+      "filterDone": "Done",
+      "empty": "No bookings yet. Visit provider profile and book your first service.",
+      "payment": "Payment: {status}",
+      "cancel": "Cancel",
+      "resumePayment": "Resume Payment",
+      "opening": "Opening..."
+    },
+    "activeBookings": {
+      "title": "Active Bookings",
+      "viewAll": "View All",
+      "empty": "No active bookings currently."
+    },
+    "recentActivity": {
+      "title": "Recent Activity",
+      "empty": "No recent booking activity yet.",
+      "completedWith": "Completed with {provider}",
+      "cancelledWith": "Cancelled with {provider}"
+    },
+    "savedPros": {
+      "title": "Saved Pros",
+      "empty": "No saved providers yet. Save providers from their profile to see them here.",
+      "findMore": "Find more pros"
+    },
+    "feedback": {
+      "title": "Share Work Feedback",
+      "visibleToAdmin": "Visible to admin",
+      "noCompleted": "Complete a booking to submit feedback on worker performance.",
+      "bookingLabel": "Completed booking",
+      "selectBooking": "Select booking",
+      "ratingLabel": "Rating",
+      "detailsLabel": "Feedback details (optional)",
+      "placeholder": "Tell admin what went well or what should improve.",
+      "helper": "Your feedback helps admin monitor and improve worker performance.",
+      "submit": "Submit Feedback",
+      "submitting": "Submitting…",
+      "msgSelectBooking": "Select a completed booking before submitting feedback.",
+      "msgRatingRange": "Rating must be between 1 and 5.",
+      "msgThankYou": "Thank you. Your feedback was submitted for admin review.",
+      "msgNetwork": "Network issue while submitting feedback.",
+      "msgSubmitFail": "Unable to submit feedback right now."
+    },
+    "mobileNav": {
+      "providers": "Providers",
+      "dashboard": "Dashboard",
+      "account": "Account"
+    }
+  },
+  "providerDashboard": {
+    "brand": "Workmate",
+    "tagline": "Service Provider",
+    "nav": {
+      "dashboard": "Dashboard",
+      "bookingsQueue": "Bookings Queue",
+      "earnings": "Earnings & Payouts",
+      "profile": "Profile & Settings"
+    },
+    "online": {
+      "updating": "Updating...",
+      "goOffline": "Go Offline",
+      "goOnline": "Go Online"
+    },
+    "logout": "Logout",
+    "notifications": {
+      "title": "Notifications",
+      "unread": "{count} unread",
+      "empty": "No notifications yet."
+    },
+    "mobileTabs": {
+      "home": "Home",
+      "queue": "Queue",
+      "payouts": "Payouts",
+      "profile": "Profile"
+    },
+    "home": {
+      "greeting": "Good morning, {name}.",
+      "daySubtitle": "Here is what your day looks like.",
+      "onlineReady": "Online & Ready",
+      "offline": "Offline",
+      "pendingPayout": "Pending Payout",
+      "pendingPayoutCaption": "Eligible for next weekly batch",
+      "weekGross": "This Week Gross",
+      "weekGrossCaption": "Before platform commission",
+      "lastPayout": "Last Payout",
+      "none": "none",
+      "quickQueueTitle": "Quick Queue Snapshot",
+      "noBookings": "No booking requests yet.",
+      "routeTitle": "Today's Route",
+      "nextStop": "Next Stop: 4.2 km",
+      "estDrive": "Est. 12 mins drive"
+    },
+    "queue": {
+      "title": "Bookings Queue",
+      "sectionTitle": "Bookings Queue",
+      "filterAll": "All",
+      "filterRequested": "Requested",
+      "filterActive": "Active",
+      "filterDone": "Done",
+      "empty": "No booking requests yet.",
+      "accept": "Accept",
+      "reject": "Reject",
+      "start": "Start",
+      "complete": "Complete",
+      "waitingPayment": "Waiting for customer payment capture before job progression."
+    },
+    "earnings": {
+      "title": "Earnings & Payouts",
+      "pendingPayout": "Pending Payout",
+      "weekGross": "This Week Gross",
+      "lastPayout": "Last Payout",
+      "none": "none",
+      "historyTitle": "Payout History",
+      "noPayouts": "No payouts generated yet."
+    }
+  },
+  "adminDashboard": {
+    "brandTag": "Workmate",
+    "roleTitle": "Admin",
+    "tagline": "Operations & monitoring",
+    "backToSite": "Back to site",
+    "logout": "Logout",
+    "loadingSession": "Loading admin session…",
+    "panels": {
+      "overview": "Overview",
+      "customers": "Customers",
+      "providers": "Providers",
+      "bookings": "Bookings",
+      "reports": "Reports",
+      "settings": "Settings"
+    },
+    "hero": {
+      "controlCenter": "Control center",
+      "hello": "Hello, {name}",
+      "body": "Monitor customers, providers, and bookings at a glance — same experience as your customer dashboard, tuned for operations.",
+      "badgeAuth": "Authenticated",
+      "badgeLive": "Live data"
+    },
+    "loadingData": "Loading dashboard data…",
+    "errorTitle": "Could not load data",
+    "loadFailed": "Failed to load admin dashboard",
+    "overview": {
+      "kpiCustomers": "Customers",
+      "kpiProviders": "Providers",
+      "kpiBookings": "Bookings",
+      "kpiCompleted": "Completed",
+      "recentActivity": "Recent activity",
+      "noRecentBookings": "No recent bookings yet.",
+      "withProvider": "with {provider}",
+      "feedbackTitle": "Customer feedback",
+      "feedbackSubtitle": "Recent quality feedback submitted after completed work",
+      "noFeedback": "No feedback submitted yet.",
+      "noComments": "No comments provided.",
+      "jobLine": "Job {jobId} •"
+    },
+    "customers": {
+      "title": "Customers",
+      "subtitle": "Registered customer accounts",
+      "name": "Name",
+      "phone": "Phone",
+      "location": "Location",
+      "empty": "No customers found."
+    },
+    "providers": {
+      "title": "Providers",
+      "subtitle": "Worker profiles and availability",
+      "name": "Name",
+      "phone": "Phone",
+      "skills": "Skills",
+      "status": "Status",
+      "empty": "No providers found.",
+      "online": "Online",
+      "offline": "Offline"
+    },
+    "bookings": {
+      "title": "Bookings",
+      "subtitle": "Latest jobs and payment state",
+      "service": "Service",
+      "customer": "Customer",
+      "provider": "Provider",
+      "status": "Status",
+      "payment": "Payment",
+      "empty": "No bookings found."
+    },
+    "reports": {
+      "totalJobs": "Total jobs",
+      "completedJobs": "Completed jobs",
+      "cancelledJobs": "Cancelled jobs",
+      "pendingPayments": "Pending payments",
+      "totalCustomers": "Customers",
+      "totalProviders": "Providers",
+      "completionRate": "Completion rate %",
+      "totalFeedback": "Total feedback",
+      "avgCustomerRating": "Avg customer rating"
+    },
+    "settings": {
+      "title": "Settings",
+      "intro": "System controls can be added here. You are signed in as {name}{phone}.",
+      "apiBase": "API base",
+      "session": "Session",
+      "sessionValue": "Admin · JWT in browser storage"
+    }
+  },
+  "providerEditor": {
+    "title": "Profile Details",
+    "intro": "Manage how customers see your provider profile with a cleaner editor.",
+    "editProfile": "Edit Profile",
+    "cancel": "Cancel",
+    "changeBanner": "Change Banner",
+    "changePhoto": "Change Profile Photo",
+    "bannerAlt": "Banner preview",
+    "avatarAlt": "Avatar preview",
+    "galleryAlt": "Gallery preview",
+    "galleryWorkAlt": "Provider work sample",
+    "labels": {
+      "name": "Name",
+      "phone": "Phone",
+      "location": "Location",
+      "languages": "Languages",
+      "profileTitle": "Profile title",
+      "yearsExperience": "Years experience",
+      "aboutTitle": "About title",
+      "aboutDescription": "About description",
+      "serviceCards": "Service cards",
+      "serviceName": "Service name",
+      "description": "Description",
+      "chargePerHr": "Charge (₹/hr)",
+      "workGallery": "Work gallery images",
+      "availability": "Availability"
+    },
+    "serviceCardsHint": "Add service cards customers will see in your profile.",
+    "noServiceCards": "No service cards added yet.",
+    "addServiceCard": "Add Service Card",
+    "serviceCardsConfigured": "{count} service cards configured",
+    "remove": "Remove",
+    "noGalleryImages": "No gallery images uploaded yet.",
+    "galleryImageCount": "{count} gallery images",
+    "placeholders": {
+      "aboutTitle": "Master plumber and pipefitter",
+      "aboutDescription": "Share your experience, specialties, and trust points for customers.",
+      "serviceName": "Leak Repair",
+      "serviceDescription": "Pipe patching, joint sealing and replacement."
+    },
+    "notSpecified": "Not specified",
+    "yearsUnit": "{years} years",
+    "showOnlineNow": "Show as online now",
+    "onlineNow": "Online now",
+    "offline": "Offline",
+    "onRequest": "On request",
+    "days": {
+      "sun": "Sun",
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri",
+      "sat": "Sat"
+    },
+    "spoken": {
+      "en": "English",
+      "ml": "Malayalam",
+      "hi": "Hindi"
+    },
+    "defaultProviderName": "Provider",
+    "saving": "Saving...",
+    "saveChanges": "Save Changes",
+    "messages": {
+      "providerUpdated": "Provider profile updated successfully.",
+      "failedSave": "Failed to save profile"
+    }
+  },
+  "profilePage": {
+    "header": {
+      "bookProvider": "Book Provider",
+      "providerProfile": "Provider Profile",
+      "myAccount": "My Account",
+      "dashboard": "Dashboard",
+      "login": "Login"
+    },
+    "suspenseLoading": "Loading profile...",
+    "customer": {
+      "title": "Customer Profile",
+      "intro": "This page is your account view. Provider details open only from search results.",
+      "findProviders": "Find providers and book service",
+      "defaultName": "Customer",
+      "language": "Language",
+      "notifications": "Notifications",
+      "notifySms": "SMS",
+      "notifyWhatsapp": "WhatsApp",
+      "notifyPush": "Push"
+    },
+    "providerOwn": {
+      "backToDashboard": "Back to provider dashboard"
+    },
+    "providerPublic": {
+      "loadFailed": "Failed to load provider profile",
+      "loading": "Loading provider profile...",
+      "bannerAlt": "Provider banner",
+      "avatarAlt": "Provider avatar",
+      "verified": "Verified",
+      "about": "About",
+      "skillsServices": "Skills & Services",
+      "workGallery": "Work Gallery",
+      "availability": "Availability",
+      "save": "Save",
+      "saved": "Saved",
+      "defaultLocation": "Kerala",
+      "aboutShortFallback": "Experienced local provider",
+      "aboutLongFallback": "Experienced local provider with trusted service quality.",
+      "yearsExperience": "{years}+ years",
+      "fallbackServiceDescription": "Professional {service} support for homes and small businesses.",
+      "perHour": "₹{amount}/hr"
+    },
+    "booking": {
+      "title": "Book Service",
+      "subtitle": "Confirm your requirement and initiate payment.",
+      "pendingPayment": "Pending payment",
+      "bookingWaiting": "Booking {jobId} is waiting for payment completion.",
+      "resumePayment": "Resume Payment",
+      "clear": "Clear",
+      "serviceNeeded": "Service needed",
+      "servicePlaceholder": "Select or type service",
+      "notesPlaceholder": "Add notes for provider (address landmarks, urgency, access details)",
+      "tip": "Tip: include landmark and preferred contact details for faster confirmation.",
+      "estimatedCharge": "Estimated charge",
+      "perHour": "₹{amount}/hr",
+      "bookAndPay": "Book and Pay",
+      "bookingInProgress": "Booking..."
+    },
+    "paymentStatus": {
+      "label": "Payment status:",
+      "initiated": "Initiated (PhonePe sandbox)",
+      "pending": "pending",
+      "paid": "paid",
+      "failed": "failed"
+    },
+    "messages": {
+      "profileUpdated": "Profile updated successfully.",
+      "providerProfileUpdated": "Provider profile updated successfully.",
+      "failedSaveProfile": "Failed to save profile",
+      "failedUpdateProvider": "Failed to update provider profile",
+      "bookingCreated": "Booking created (ID: {jobId}). Payment session is ready. Complete payment in PhonePe.",
+      "paymentResumed": "Payment resumed for booking {jobId}.",
+      "providerMissing": "Provider ID missing. Please start from search page.",
+      "savedProviderAdded": "Provider added to Saved Pros.",
+      "savedProviderRemoved": "Provider removed from Saved Pros.",
+      "bookingPaymentFailed": "Booking/payment initiation failed",
+      "resumePaymentFailed": "Failed to resume payment",
+      "updateSavedFailed": "Failed to update saved provider"
+    },
+    "errors": {
+      "needServiceName": "Please choose or enter a service name.",
+      "needDateTime": "Please choose booking date and time.",
+      "invalidDateTime": "Please choose a valid booking date and time.",
+      "timeTooSoon": "Please choose a time at least 15 minutes from now.",
+      "bookingFailed": "Booking failed"
+    }
+  }
+}

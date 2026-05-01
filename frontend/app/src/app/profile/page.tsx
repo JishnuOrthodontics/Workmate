@@ -1,9 +1,11 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuth } from '../auth-provider'
 import { setSession } from '../../lib/auth-client'
+import { useLocale } from '../locale-provider'
+import { LanguageSwitcher } from '../language-switcher'
 
 type PaymentStatus = 'initiated' | 'pending' | 'paid' | 'failed'
 const PENDING_PAYMENT_KEY = 'workmate_pending_payment'
@@ -31,6 +33,7 @@ type ProviderProfile = {
   languages: Array<'en' | 'ml' | 'hi'>;
   hourlyRateFrom: number;
   rating: number;
+  ratingCount?: number;
   yearsExperience: number;
   availabilityTags: string[];
 }
@@ -54,17 +57,34 @@ type ProviderOwnProfile = {
   isOnline: boolean;
 }
 
-const PROVIDER_LANGUAGE_OPTIONS: Array<{ code: 'en' | 'ml' | 'hi'; label: string }> = [
-  { code: 'en', label: 'English' },
-  { code: 'ml', label: 'Malayalam' },
-  { code: 'hi', label: 'Hindi' },
-]
-
 function ProfilePageContent() {
   const { ready, activeRole, customerSession, providerSession, refresh } = useAuth()
   const router = useRouter()
   const searchParams = useSearchParams()
   const providerId = searchParams.get('providerId')
+  const { t, locale } = useLocale()
+
+  const providerLanguageOptions = useMemo<Array<{ code: 'en' | 'ml' | 'hi'; label: string }>>(
+    () => [
+      { code: 'en', label: t('providerEditor.spoken.en') },
+      { code: 'ml', label: t('providerEditor.spoken.ml') },
+      { code: 'hi', label: t('providerEditor.spoken.hi') },
+    ],
+    [t, locale]
+  )
+
+  const dayLabels = useMemo(
+    () => [
+      t('providerEditor.days.sun'),
+      t('providerEditor.days.mon'),
+      t('providerEditor.days.tue'),
+      t('providerEditor.days.wed'),
+      t('providerEditor.days.thu'),
+      t('providerEditor.days.fri'),
+      t('providerEditor.days.sat'),
+    ],
+    [t, locale]
+  )
 
   const [bookingMessage, setBookingMessage] = useState('')
   const [bookingLoading, setBookingLoading] = useState(false)
@@ -167,17 +187,17 @@ function ProfilePageContent() {
         setProviderError('')
         const res = await fetch(`http://localhost:3333/api/providers/${providerId}/public-profile`)
         const json = await res.json()
-        if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load provider profile')
+        if (!res.ok || !json?.success) throw new Error(json?.error || t('profilePage.providerPublic.loadFailed'))
         setProviderProfile(json.data as ProviderProfile)
       } catch (err) {
-        setProviderError(err instanceof Error ? err.message : 'Failed to load provider profile')
+        setProviderError(err instanceof Error ? err.message : t('profilePage.providerPublic.loadFailed'))
         setProviderProfile(null)
       } finally {
         setProviderLoading(false)
       }
     }
     loadProvider()
-  }, [providerId])
+  }, [providerId, t])
 
   useEffect(() => {
     const loadSavedState = async () => {
@@ -267,7 +287,7 @@ function ProfilePageContent() {
 
   const handleBookService = async () => {
     if (!providerId) {
-      setBookingMessage('Provider ID missing. Please start from search page.')
+      setBookingMessage(t('profilePage.messages.providerMissing'))
       return
     }
     const raw = localStorage.getItem('workmate_customer_auth')
@@ -281,12 +301,12 @@ function ProfilePageContent() {
       setBookingLoading(true)
       setBookingMessage('')
       const cleanServiceName = serviceName.trim().replace(/\s+/g, ' ')
-      if (!cleanServiceName) throw new Error('Please choose or enter a service name.')
-      if (!bookingDate || !bookingTime) throw new Error('Please choose booking date and time.')
+      if (!cleanServiceName) throw new Error(t('profilePage.errors.needServiceName'))
+      if (!bookingDate || !bookingTime) throw new Error(t('profilePage.errors.needDateTime'))
       const scheduledAt = new Date(`${bookingDate}T${bookingTime}:00`)
-      if (Number.isNaN(scheduledAt.getTime())) throw new Error('Please choose a valid booking date and time.')
+      if (Number.isNaN(scheduledAt.getTime())) throw new Error(t('profilePage.errors.invalidDateTime'))
       if (scheduledAt.getTime() < Date.now() + 15 * 60 * 1000) {
-        throw new Error('Please choose a time at least 15 minutes from now.')
+        throw new Error(t('profilePage.errors.timeTooSoon'))
       }
 
       const res = await fetch('http://localhost:3333/api/bookings', {
@@ -301,7 +321,7 @@ function ProfilePageContent() {
         }),
       })
       const json = await res.json()
-      if (!res.ok || !json?.success) throw new Error(json?.error || 'Booking failed')
+      if (!res.ok || !json?.success) throw new Error(json?.error || t('profilePage.errors.bookingFailed'))
 
       savePendingPayment({
         jobId: json.data.id,
@@ -313,10 +333,10 @@ function ProfilePageContent() {
       await createPaymentForJob(json.data.id, customer.token, customer.uid)
 
       setPaymentState('initiated')
-      setBookingMessage(`Booking created (ID: ${json.data.id}). Payment session is ready. Complete payment in PhonePe.`)
+      setBookingMessage(t('profilePage.messages.bookingCreated', { jobId: String(json.data.id) }))
     } catch (err) {
       setPaymentState((prev) => prev || 'failed')
-      setBookingMessage(err instanceof Error ? err.message : 'Booking/payment initiation failed')
+      setBookingMessage(err instanceof Error ? err.message : t('profilePage.messages.bookingPaymentFailed'))
     } finally {
       setBookingLoading(false)
     }
@@ -329,10 +349,10 @@ function ProfilePageContent() {
       setBookingMessage('')
       await createPaymentForJob(pendingPayment.jobId, customerSession.token, customerSession.uid)
       setPaymentState('initiated')
-      setBookingMessage(`Payment resumed for booking ${pendingPayment.jobId}.`)
+      setBookingMessage(t('profilePage.messages.paymentResumed', { jobId: pendingPayment.jobId }))
     } catch (err) {
       setPaymentState('failed')
-      setBookingMessage(err instanceof Error ? err.message : 'Failed to resume payment')
+      setBookingMessage(err instanceof Error ? err.message : t('profilePage.messages.resumePaymentFailed'))
     } finally {
       setBookingLoading(false)
     }
@@ -353,11 +373,11 @@ function ProfilePageContent() {
         headers: { Authorization: `Bearer ${customerSession.token}` },
       })
       const json = await res.json()
-      if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to update saved provider')
+      if (!res.ok || !json?.success) throw new Error(json?.error || t('profilePage.messages.updateSavedFailed'))
       setIsProviderSaved(!isProviderSaved)
-      setBookingMessage(isProviderSaved ? 'Provider removed from Saved Pros.' : 'Provider added to Saved Pros.')
+      setBookingMessage(isProviderSaved ? t('profilePage.messages.savedProviderRemoved') : t('profilePage.messages.savedProviderAdded'))
     } catch (err) {
-      setBookingMessage(err instanceof Error ? err.message : 'Failed to update saved provider')
+      setBookingMessage(err instanceof Error ? err.message : t('profilePage.messages.updateSavedFailed'))
     } finally {
       setSavingProvider(false)
     }
@@ -383,7 +403,7 @@ function ProfilePageContent() {
         }),
       })
       const json = await res.json()
-      if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to update profile')
+      if (!res.ok || !json?.success) throw new Error(json?.error || t('profilePage.messages.failedSaveProfile'))
 
       const existing = customerSession
       setSession('customer', {
@@ -396,10 +416,10 @@ function ProfilePageContent() {
         token: existing?.token,
       })
       refresh()
-      setProfileMessage('Profile updated successfully.')
+      setProfileMessage(t('profilePage.messages.profileUpdated'))
       setIsEditing(false)
     } catch (err) {
-      setProfileMessage(err instanceof Error ? err.message : 'Failed to save profile')
+      setProfileMessage(err instanceof Error ? err.message : t('profilePage.messages.failedSaveProfile'))
     } finally {
       setSavingProfile(false)
     }
@@ -440,7 +460,7 @@ function ProfilePageContent() {
         }),
       })
       const json = await res.json()
-      if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to update provider profile')
+      if (!res.ok || !json?.success) throw new Error(json?.error || t('profilePage.messages.failedUpdateProvider'))
 
       setSession('provider', {
         ...(providerSession || { isAuthenticated: true }),
@@ -472,10 +492,10 @@ function ProfilePageContent() {
         ) as Array<'en' | 'ml' | 'hi'>,
       }))
       refresh()
-      setProviderProfileMessage('Provider profile updated successfully.')
+      setProviderProfileMessage(t('profilePage.messages.providerProfileUpdated'))
       setIsEditing(false)
     } catch (err) {
-      setProviderProfileMessage(err instanceof Error ? err.message : 'Failed to save profile')
+      setProviderProfileMessage(err instanceof Error ? err.message : t('providerEditor.messages.failedSave'))
     } finally {
       setSavingProfile(false)
     }
@@ -509,14 +529,16 @@ function ProfilePageContent() {
       reader.readAsDataURL(file)
     })
 
-  const providerServiceCards =
-    providerProfile?.serviceHighlights && providerProfile.serviceHighlights.length > 0
-      ? providerProfile.serviceHighlights
-      : (providerProfile?.services || []).map((service) => ({
-          name: service,
-          description: `Professional ${service.toLowerCase()} support for homes and small businesses.`,
-          charge: providerProfile?.hourlyRateFrom || 0,
-        }))
+  const providerServiceCards = useMemo(() => {
+    if (providerProfile?.serviceHighlights && providerProfile.serviceHighlights.length > 0) {
+      return providerProfile.serviceHighlights
+    }
+    return (providerProfile?.services || []).map((service) => ({
+      name: service,
+      description: t('profilePage.providerPublic.fallbackServiceDescription', { service: service.toLowerCase() }),
+      charge: providerProfile?.hourlyRateFrom || 0,
+    }))
+  }, [providerProfile, t, locale])
 
   const providerGallery =
     providerProfile?.gallery && providerProfile.gallery.length > 0
@@ -532,37 +554,54 @@ function ProfilePageContent() {
   )
   const estimatedRate = Number(selectedServiceCard?.charge || providerProfile?.hourlyRateFrom || 0)
 
+  const paymentStatusLabel = (state: string) => {
+    if (state === 'initiated') return t('profilePage.paymentStatus.initiated')
+    if (state === 'pending') return t('profilePage.paymentStatus.pending')
+    if (state === 'paid') return t('profilePage.paymentStatus.paid')
+    if (state === 'failed') return t('profilePage.paymentStatus.failed')
+    return state
+  }
+
   return (
     <main className="min-h-screen bg-gradient-to-br from-white via-emerald-50/30 to-teal-50/30 p-6">
       <div className="mx-auto w-full max-w-5xl">
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-3xl font-black text-emerald-900">{providerId ? 'Book Provider' : activeRole === 'provider' ? 'Provider Profile' : 'My Account'}</h1>
-          <a
-            className="rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-500 px-4 py-2 text-sm font-semibold text-white"
-            href={ready && activeRole === 'admin' ? '/admin/dashboard' : ready && activeRole === 'provider' ? '/provider/dashboard' : ready && activeRole === 'customer' ? '/dashboard' : '/auth'}
-          >
-            {ready && activeRole ? 'Dashboard' : 'Login'}
-          </a>
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+          <h1 className="text-3xl font-black text-emerald-900">
+            {providerId
+              ? t('profilePage.header.bookProvider')
+              : activeRole === 'provider'
+                ? t('profilePage.header.providerProfile')
+                : t('profilePage.header.myAccount')}
+          </h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <LanguageSwitcher />
+            <a
+              className="rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-500 px-4 py-2 text-sm font-semibold text-white"
+              href={ready && activeRole === 'admin' ? '/admin/dashboard' : ready && activeRole === 'provider' ? '/provider/dashboard' : ready && activeRole === 'customer' ? '/dashboard' : '/auth'}
+            >
+              {ready && activeRole ? t('profilePage.header.dashboard') : t('profilePage.header.login')}
+            </a>
+          </div>
         </div>
 
         {!providerId ? (
           activeRole === 'provider' ? (
             <section className="rounded-3xl border border-emerald-100/90 bg-gradient-to-br from-white via-emerald-50/40 to-white p-6 shadow-[0_12px_32px_rgba(16,84,58,0.10)]">
               <div className="flex items-center justify-between gap-3">
-                <h2 className="text-xl font-bold text-emerald-900">Profile Details</h2>
+                <h2 className="text-xl font-bold text-emerald-900">{t('providerEditor.title')}</h2>
                 <button
                   className="rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow-sm hover:bg-emerald-50"
                   onClick={() => setIsEditing((v) => !v)}
                   type="button"
                 >
-                  {isEditing ? 'Cancel' : 'Edit Profile'}
+                  {isEditing ? t('providerEditor.cancel') : t('providerEditor.editProfile')}
                 </button>
               </div>
-              <p className="mt-1 text-sm text-stone-600">Manage how customers see your provider profile with a cleaner editor.</p>
+              <p className="mt-1 text-sm text-stone-600">{t('providerEditor.intro')}</p>
               <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="md:col-span-2 overflow-hidden rounded-xl border border-emerald-100 bg-white">
                   <div className="relative h-36 bg-emerald-100">
-                    {providerOwn.bannerUrl ? <img alt="Banner preview" className="h-full w-full object-cover" src={providerOwn.bannerUrl} /> : null}
+                    {providerOwn.bannerUrl ? <img alt={t('providerEditor.bannerAlt')} className="h-full w-full object-cover" src={providerOwn.bannerUrl} /> : null}
                     {isEditing ? (
                       <>
                         <input
@@ -581,7 +620,7 @@ function ProfilePageContent() {
                           className="absolute right-3 top-3 cursor-pointer rounded-xl bg-black/65 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-black/80"
                           htmlFor="provider-banner-upload"
                         >
-                          Change Banner
+                          {t('providerEditor.changeBanner')}
                         </label>
                       </>
                     ) : null}
@@ -589,7 +628,7 @@ function ProfilePageContent() {
                   <div className="relative p-4 pt-12">
                     <div className="absolute -top-10 left-4 h-20 w-20 overflow-hidden rounded-xl border-4 border-white bg-emerald-100 shadow">
                       {providerOwn.avatarUrl ? (
-                        <img alt="Avatar preview" className="h-full w-full object-cover" src={providerOwn.avatarUrl} />
+                        <img alt={t('providerEditor.avatarAlt')} className="h-full w-full object-cover" src={providerOwn.avatarUrl} />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-lg font-black text-emerald-800">
                           {(providerOwn.name || 'PR').slice(0, 2).toUpperCase()}
@@ -614,22 +653,22 @@ function ProfilePageContent() {
                           className="inline-block cursor-pointer rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
                           htmlFor="provider-avatar-upload"
                         >
-                          Change Profile Photo
+                          {t('providerEditor.changePhoto')}
                         </label>
                       </>
                     ) : null}
                   </div>
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm">
-                  <p className="text-xs uppercase text-emerald-700">Name</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.name')}</p>
                   {isEditing ? (
                     <input className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" onChange={(e) => setProviderOwn((p) => ({ ...p, name: e.target.value }))} type="text" value={providerOwn.name} />
                   ) : (
-                    <p className="text-sm font-semibold text-stone-800">{providerOwn.name || 'Provider'}</p>
+                    <p className="text-sm font-semibold text-stone-800">{providerOwn.name || t('providerEditor.defaultProviderName')}</p>
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm">
-                  <p className="text-xs uppercase text-emerald-700">Phone</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.phone')}</p>
                   {isEditing ? (
                     <input className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" onChange={(e) => setProviderOwn((p) => ({ ...p, phone: e.target.value }))} type="tel" value={providerOwn.phone} />
                   ) : (
@@ -637,7 +676,7 @@ function ProfilePageContent() {
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm">
-                  <p className="text-xs uppercase text-emerald-700">Location</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.location')}</p>
                   {isEditing ? (
                     <input className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" onChange={(e) => setProviderOwn((p) => ({ ...p, location: e.target.value }))} type="text" value={providerOwn.location} />
                   ) : (
@@ -645,10 +684,10 @@ function ProfilePageContent() {
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm">
-                  <p className="text-xs uppercase text-emerald-700">Languages</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.languages')}</p>
                   {isEditing ? (
                     <div className="mt-2 flex flex-wrap gap-2">
-                      {PROVIDER_LANGUAGE_OPTIONS.map((item) => {
+                      {providerLanguageOptions.map((item) => {
                         const selected = providerOwn.languages.includes(item.code)
                         return (
                           <button
@@ -677,16 +716,16 @@ function ProfilePageContent() {
                     <p className="text-sm font-semibold text-stone-800">
                       {providerOwn.languages.length > 0
                         ? providerOwn.languages
-                            .map((code) => PROVIDER_LANGUAGE_OPTIONS.find((x) => x.code === code)?.label || code.toUpperCase())
+                            .map((code) => providerLanguageOptions.find((x) => x.code === code)?.label || code.toUpperCase())
                             .join(', ')
-                        : 'Not specified'}
+                        : t('providerEditor.notSpecified')}
                     </p>
                   )}
                 </div>
               </div>
               <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm">
-                  <p className="text-xs uppercase text-emerald-700">Profile title</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.profileTitle')}</p>
                   {isEditing ? (
                     <input className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" onChange={(e) => setProviderOwn((p) => ({ ...p, title: e.target.value }))} type="text" value={providerOwn.title} />
                   ) : (
@@ -694,40 +733,40 @@ function ProfilePageContent() {
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm">
-                  <p className="text-xs uppercase text-emerald-700">Years experience</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.yearsExperience')}</p>
                   {isEditing ? (
                     <input className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" min={0} onChange={(e) => setProviderOwn((p) => ({ ...p, yearsExperience: Number(e.target.value || 0) }))} type="number" value={providerOwn.yearsExperience} />
                   ) : (
-                    <p className="text-sm font-semibold text-stone-800">{providerOwn.yearsExperience} years</p>
+                    <p className="text-sm font-semibold text-stone-800">{t('providerEditor.yearsUnit', { years: String(providerOwn.yearsExperience) })}</p>
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm md:col-span-2">
-                  <p className="text-xs uppercase text-emerald-700">About title</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.aboutTitle')}</p>
                   {isEditing ? (
-                    <input className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" onChange={(e) => setProviderOwn((p) => ({ ...p, aboutTitle: e.target.value }))} placeholder="Master plumber and pipefitter" type="text" value={providerOwn.aboutTitle} />
+                    <input className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" onChange={(e) => setProviderOwn((p) => ({ ...p, aboutTitle: e.target.value }))} placeholder={t('providerEditor.placeholders.aboutTitle')} type="text" value={providerOwn.aboutTitle} />
                   ) : (
                     <p className="text-sm text-stone-800">{providerOwn.aboutTitle || '-'}</p>
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm md:col-span-2">
-                  <p className="text-xs uppercase text-emerald-700">About description</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.aboutDescription')}</p>
                   {isEditing ? (
-                    <textarea className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" onChange={(e) => setProviderOwn((p) => ({ ...p, aboutDescription: e.target.value }))} placeholder="Share your experience, specialties, and trust points for customers." rows={4} value={providerOwn.aboutDescription} />
+                    <textarea className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" onChange={(e) => setProviderOwn((p) => ({ ...p, aboutDescription: e.target.value }))} placeholder={t('providerEditor.placeholders.aboutDescription')} rows={4} value={providerOwn.aboutDescription} />
                   ) : (
                     <p className="text-sm text-stone-800 whitespace-pre-wrap">{providerOwn.aboutDescription || '-'}</p>
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm md:col-span-2">
-                  <p className="text-xs uppercase text-emerald-700">Service cards</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.serviceCards')}</p>
                   {isEditing ? (
                     <div className="mt-2 space-y-3">
-                      <p className="text-xs text-stone-600">Add service cards customers will see in your profile.</p>
+                      <p className="text-xs text-stone-600">{t('providerEditor.serviceCardsHint')}</p>
                       {providerOwn.serviceHighlights.length > 0 ? (
                         providerOwn.serviceHighlights.map((card, idx) => (
                           <div className="rounded-xl border border-emerald-100 bg-white p-3 shadow-sm" key={`${card.name}-${idx}`}>
                             <div className="grid grid-cols-1 gap-2 md:grid-cols-8">
                               <div className="md:col-span-2">
-                                <p className="text-[10px] uppercase text-emerald-700">Service name</p>
+                                <p className="text-[10px] uppercase text-emerald-700">{t('providerEditor.labels.serviceName')}</p>
                                 <input
                                   className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                                   onChange={(e) =>
@@ -738,13 +777,13 @@ function ProfilePageContent() {
                                       ),
                                     }))
                                   }
-                                  placeholder="Leak Repair"
+                                  placeholder={t('providerEditor.placeholders.serviceName')}
                                   type="text"
                                   value={card.name}
                                 />
                               </div>
                               <div className="md:col-span-3">
-                                <p className="text-[10px] uppercase text-emerald-700">Description</p>
+                                <p className="text-[10px] uppercase text-emerald-700">{t('providerEditor.labels.description')}</p>
                                 <input
                                   className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                                   onChange={(e) =>
@@ -755,13 +794,13 @@ function ProfilePageContent() {
                                       ),
                                     }))
                                   }
-                                  placeholder="Pipe patching, joint sealing and replacement."
+                                  placeholder={t('providerEditor.placeholders.serviceDescription')}
                                   type="text"
                                   value={card.description}
                                 />
                               </div>
                               <div className="md:col-span-1">
-                                <p className="text-[10px] uppercase text-emerald-700">Charge (₹/hr)</p>
+                                <p className="text-[10px] uppercase text-emerald-700">{t('providerEditor.labels.chargePerHr')}</p>
                                 <input
                                   className="mt-1 w-full rounded-xl border border-emerald-200/80 bg-white px-3 py-2 text-sm text-stone-800 shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
                                   min={0}
@@ -788,14 +827,14 @@ function ProfilePageContent() {
                                   }
                                   type="button"
                                 >
-                                  Remove
+                                  {t('providerEditor.remove')}
                                 </button>
                               </div>
                             </div>
                           </div>
                         ))
                       ) : (
-                        <p className="text-sm text-stone-600">No service cards added yet.</p>
+                        <p className="text-sm text-stone-600">{t('providerEditor.noServiceCards')}</p>
                       )}
                       <button
                         className="rounded-xl border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-50"
@@ -807,15 +846,15 @@ function ProfilePageContent() {
                         }
                         type="button"
                       >
-                        Add Service Card
+                        {t('providerEditor.addServiceCard')}
                       </button>
                     </div>
                   ) : (
-                    <p className="text-sm text-stone-800">{providerOwn.serviceHighlights.length} service cards configured</p>
+                    <p className="text-sm text-stone-800">{t('providerEditor.serviceCardsConfigured', { count: String(providerOwn.serviceHighlights.length) })}</p>
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm md:col-span-2">
-                  <p className="text-xs uppercase text-emerald-700">Work gallery images</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.workGallery')}</p>
                   {isEditing ? (
                     <div className="mt-2 space-y-3">
                       <input
@@ -829,7 +868,7 @@ function ProfilePageContent() {
                         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
                           {providerOwn.gallery.map((url, idx) => (
                             <div className="relative" key={`${url.slice(0, 24)}-${idx}`}>
-                              <img alt="Gallery preview" className="h-20 w-full rounded-lg object-cover" src={url} />
+                              <img alt={t('providerEditor.galleryAlt')} className="h-20 w-full rounded-lg object-cover" src={url} />
                               <button
                                 className="absolute right-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white"
                                 onClick={() =>
@@ -840,29 +879,29 @@ function ProfilePageContent() {
                                 }
                                 type="button"
                               >
-                                Remove
+                                {t('providerEditor.remove')}
                               </button>
                             </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-stone-600">No gallery images uploaded yet.</p>
+                        <p className="text-sm text-stone-600">{t('providerEditor.noGalleryImages')}</p>
                       )}
                     </div>
                   ) : (
-                    <p className="text-sm text-stone-800">{providerOwn.gallery.length} gallery images</p>
+                    <p className="text-sm text-stone-800">{t('providerEditor.galleryImageCount', { count: String(providerOwn.gallery.length) })}</p>
                   )}
                 </div>
                 <div className="rounded-2xl border border-emerald-100/80 bg-gradient-to-br from-white to-emerald-50/60 p-4 shadow-sm md:col-span-2">
-                  <p className="text-xs uppercase text-emerald-700">Availability</p>
+                  <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.availability')}</p>
                   {isEditing ? (
                     <div className="mt-2 space-y-3">
                       <label className="flex items-center gap-2 text-sm text-stone-700">
                         <input className="h-4 w-4 rounded border-emerald-300 accent-emerald-600" checked={providerOwn.isOnline} onChange={(e) => setProviderOwn((p) => ({ ...p, isOnline: e.target.checked }))} type="checkbox" />
-                        Show as online now
+                        {t('providerEditor.showOnlineNow')}
                       </label>
                       <div className="flex flex-wrap gap-3 text-sm text-stone-700">
-                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((dayLabel, idx) => (
+                        {dayLabels.map((dayLabel, idx) => (
                           <label className="flex items-center gap-1" key={dayLabel}>
                             <input
                               className="h-4 w-4 rounded border-emerald-300 accent-emerald-600"
@@ -884,24 +923,24 @@ function ProfilePageContent() {
                     </div>
                   ) : (
                     <p className="text-sm text-stone-800">
-                      {providerOwn.isOnline ? 'Online now' : 'Offline'} •{' '}
+                      {providerOwn.isOnline ? t('providerEditor.onlineNow') : t('providerEditor.offline')} •{' '}
                       {providerOwn.availabilityDays.length > 0
                         ? providerOwn.availabilityDays
                             .sort((a, b) => a - b)
-                            .map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d])
+                            .map((d) => dayLabels[d])
                             .join(', ')
-                        : 'On request'}
+                        : t('providerEditor.onRequest')}
                     </p>
                   )}
                 </div>
               </div>
               <div className="mt-4 flex items-center justify-between gap-3">
                 <a className="text-sm font-semibold text-emerald-800 underline" href="/provider/dashboard">
-                  Back to provider dashboard
+                  {t('profilePage.providerOwn.backToDashboard')}
                 </a>
                 {isEditing ? (
                   <button className="rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-500 px-4 py-2 text-sm font-semibold text-white shadow-md transition hover:from-emerald-800 hover:to-emerald-600 disabled:opacity-70" disabled={savingProfile} onClick={handleSaveProviderProfile} type="button">
-                    {savingProfile ? 'Saving...' : 'Save Changes'}
+                    {savingProfile ? t('providerEditor.saving') : t('providerEditor.saveChanges')}
                   </button>
                 ) : null}
               </div>
@@ -910,27 +949,27 @@ function ProfilePageContent() {
           ) : (
           <section className="rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-xl font-bold text-emerald-900">Customer Profile</h2>
+              <h2 className="text-xl font-bold text-emerald-900">{t('profilePage.customer.title')}</h2>
               <button
                 className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800"
                 onClick={() => setIsEditing((v) => !v)}
                 type="button"
               >
-                {isEditing ? 'Cancel' : 'Edit Profile'}
+                {isEditing ? t('providerEditor.cancel') : t('providerEditor.editProfile')}
               </button>
             </div>
-            <p className="mt-1 text-sm text-stone-600">This page is your account view. Provider details open only from search results.</p>
+            <p className="mt-1 text-sm text-stone-600">{t('profilePage.customer.intro')}</p>
             <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
-                <p className="text-xs uppercase text-emerald-700">Name</p>
+                <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.name')}</p>
                 {isEditing ? (
                   <input className="mt-1 w-full rounded-lg border border-emerald-100 bg-white px-2 py-1 text-sm" onChange={(e) => setProfileName(e.target.value)} type="text" value={profileName} />
                 ) : (
-                  <p className="text-sm font-semibold text-stone-800">{customerSession?.name || 'Customer'}</p>
+                  <p className="text-sm font-semibold text-stone-800">{customerSession?.name || t('profilePage.customer.defaultName')}</p>
                 )}
               </div>
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
-                <p className="text-xs uppercase text-emerald-700">Phone</p>
+                <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.phone')}</p>
                 {isEditing ? (
                   <input className="mt-1 w-full rounded-lg border border-emerald-100 bg-white px-2 py-1 text-sm" onChange={(e) => setProfilePhone(e.target.value)} type="tel" value={profilePhone} />
                 ) : (
@@ -938,7 +977,7 @@ function ProfilePageContent() {
                 )}
               </div>
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
-                <p className="text-xs uppercase text-emerald-700">Location</p>
+                <p className="text-xs uppercase text-emerald-700">{t('providerEditor.labels.location')}</p>
                 {isEditing ? (
                   <input className="mt-1 w-full rounded-lg border border-emerald-100 bg-white px-2 py-1 text-sm" onChange={(e) => setProfileLocation(e.target.value)} type="text" value={profileLocation} />
                 ) : (
@@ -946,12 +985,12 @@ function ProfilePageContent() {
                 )}
               </div>
               <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-4">
-                <p className="text-xs uppercase text-emerald-700">Language</p>
+                <p className="text-xs uppercase text-emerald-700">{t('profilePage.customer.language')}</p>
                 {isEditing ? (
                   <select className="mt-1 w-full rounded-lg border border-emerald-100 bg-white px-2 py-1 text-sm" onChange={(e) => setProfileLanguage(e.target.value as 'en' | 'ml' | 'hi')} value={profileLanguage}>
-                    <option value="en">English</option>
-                    <option value="ml">Malayalam</option>
-                    <option value="hi">Hindi</option>
+                    <option value="en">{t('providerEditor.spoken.en')}</option>
+                    <option value="ml">{t('providerEditor.spoken.ml')}</option>
+                    <option value="hi">{t('providerEditor.spoken.hi')}</option>
                   </select>
                 ) : (
                   <p className="text-sm font-semibold text-stone-800 uppercase">{profileLanguage}</p>
@@ -959,29 +998,29 @@ function ProfilePageContent() {
               </div>
             </div>
             <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50/30 p-4">
-              <p className="text-xs uppercase text-emerald-700">Notifications</p>
+              <p className="text-xs uppercase text-emerald-700">{t('profilePage.customer.notifications')}</p>
               <div className="mt-2 flex flex-wrap gap-4 text-sm text-stone-700">
                 <label className="flex items-center gap-2">
                   <input checked={notifySms} disabled={!isEditing} onChange={(e) => setNotifySms(e.target.checked)} type="checkbox" />
-                  SMS
+                  {t('profilePage.customer.notifySms')}
                 </label>
                 <label className="flex items-center gap-2">
                   <input checked={notifyWhatsapp} disabled={!isEditing} onChange={(e) => setNotifyWhatsapp(e.target.checked)} type="checkbox" />
-                  WhatsApp
+                  {t('profilePage.customer.notifyWhatsapp')}
                 </label>
                 <label className="flex items-center gap-2">
                   <input checked={notifyPush} disabled={!isEditing} onChange={(e) => setNotifyPush(e.target.checked)} type="checkbox" />
-                  Push
+                  {t('profilePage.customer.notifyPush')}
                 </label>
               </div>
             </div>
             <div className="mt-4 flex items-center justify-between gap-3">
               <a className="text-sm font-semibold text-emerald-800 underline" href="/search">
-                Find providers and book service
+                {t('profilePage.customer.findProviders')}
               </a>
               {isEditing ? (
                 <button className="rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-70" disabled={savingProfile} onClick={handleSaveProfile} type="button">
-                  {savingProfile ? 'Saving...' : 'Save Changes'}
+                  {savingProfile ? t('providerEditor.saving') : t('providerEditor.saveChanges')}
                 </button>
               ) : null}
             </div>
@@ -991,18 +1030,18 @@ function ProfilePageContent() {
         ) : (
           <div className="flex flex-col gap-6 lg:flex-row">
             <section className="w-full rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm lg:w-2/3">
-              {providerLoading ? <p className="text-sm text-stone-600">Loading provider profile...</p> : null}
+              {providerLoading ? <p className="text-sm text-stone-600">{t('profilePage.providerPublic.loading')}</p> : null}
               {providerError ? <p className="text-sm text-red-700">{providerError}</p> : null}
               {!providerLoading && !providerError && providerProfile ? (
                 <>
                   <div className="mb-5 overflow-hidden rounded-xl border border-emerald-100 bg-gradient-to-b from-emerald-50/70 to-white">
                     <div className="h-28 w-full bg-emerald-100">
-                      {providerProfile.bannerUrl ? <img alt="Provider banner" className="h-full w-full object-cover" src={providerProfile.bannerUrl} /> : null}
+                      {providerProfile.bannerUrl ? <img alt={t('profilePage.providerPublic.bannerAlt')} className="h-full w-full object-cover" src={providerProfile.bannerUrl} /> : null}
                     </div>
                     <div className="p-4">
                     <div className="flex items-start gap-4">
                       {providerProfile.avatarUrl ? (
-                        <img alt="Provider avatar" className="h-20 w-20 rounded-xl object-cover shadow-sm" src={providerProfile.avatarUrl} />
+                        <img alt={t('profilePage.providerPublic.avatarAlt')} className="h-20 w-20 rounded-xl object-cover shadow-sm" src={providerProfile.avatarUrl} />
                       ) : (
                         <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-emerald-100 text-xl font-black text-emerald-800 shadow-sm">
                           {providerProfile.name.slice(0, 2).toUpperCase()}
@@ -1011,21 +1050,21 @@ function ProfilePageContent() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <h2 className="text-4xl font-black leading-tight text-emerald-900">{providerProfile.name}</h2>
-                          <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800">Verified</span>
+                          <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800">{t('profilePage.providerPublic.verified')}</span>
                         </div>
                         <p className="mt-1 text-sm font-medium text-stone-700">{providerProfile.title}</p>
                         <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-stone-600">
                           <span className="flex items-center gap-1">
                             <span className="material-symbols-outlined text-[14px] text-amber-500" style={{ fontVariationSettings: "'FILL' 1" }}>star</span>
-                            {providerProfile.rating.toFixed(1)}
+                            {Number(providerProfile.rating || 0).toFixed(1)} ({Number(providerProfile.ratingCount || 0)})
                           </span>
                           <span className="flex items-center gap-1">
                             <span className="material-symbols-outlined text-[14px]">location_on</span>
-                            {providerProfile.location || 'Kerala'}
+                            {providerProfile.location || t('profilePage.providerPublic.defaultLocation')}
                           </span>
                           <span className="flex items-center gap-1">
                             <span className="material-symbols-outlined text-[14px]">history</span>
-                            {providerProfile.yearsExperience}+ years
+                            {t('profilePage.providerPublic.yearsExperience', { years: String(providerProfile.yearsExperience) })}
                           </span>
                         </div>
                         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1043,12 +1082,12 @@ function ProfilePageContent() {
                               <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: isProviderSaved ? "'FILL' 1" : "'FILL' 0" }}>
                                 favorite
                               </span>
-                              {isProviderSaved ? 'Saved' : 'Save'}
+                              {isProviderSaved ? t('profilePage.providerPublic.saved') : t('profilePage.providerPublic.save')}
                             </button>
                           ) : null}
                           {providerProfile.languages?.map((code) => (
                             <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-800" key={code}>
-                              {PROVIDER_LANGUAGE_OPTIONS.find((x) => x.code === code)?.label || code.toUpperCase()}
+                              {providerLanguageOptions.find((x) => x.code === code)?.label ?? code.toUpperCase()}
                             </span>
                           ))}
                         </div>
@@ -1058,19 +1097,21 @@ function ProfilePageContent() {
                   </div>
 
                   <div className="rounded-xl border border-emerald-100 p-4">
-                    <h3 className="text-sm font-bold text-emerald-900">About</h3>
-                    <p className="mt-2 text-base font-semibold text-stone-900">{providerProfile.aboutShort || 'Experienced local provider'}</p>
-                    <p className="mt-2 text-sm text-stone-700">{providerProfile.aboutLong || 'Experienced local provider with trusted service quality.'}</p>
+                    <h3 className="text-sm font-bold text-emerald-900">{t('profilePage.providerPublic.about')}</h3>
+                    <p className="mt-2 text-base font-semibold text-stone-900">{providerProfile.aboutShort || t('profilePage.providerPublic.aboutShortFallback')}</p>
+                    <p className="mt-2 text-sm text-stone-700">{providerProfile.aboutLong || t('profilePage.providerPublic.aboutLongFallback')}</p>
                   </div>
 
                   <div className="mt-4 rounded-xl border border-emerald-100 p-4">
-                    <h3 className="text-sm font-bold text-emerald-900">Skills & Services</h3>
+                    <h3 className="text-sm font-bold text-emerald-900">{t('profilePage.providerPublic.skillsServices')}</h3>
                     <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
                       {providerServiceCards.map((service) => (
                         <div className="rounded-lg border border-emerald-100 bg-emerald-50/40 p-3" key={service.name}>
                           <div className="flex items-center justify-between gap-2">
                             <p className="text-sm font-semibold text-stone-900">{service.name}</p>
-                            <p className="text-xs font-semibold text-emerald-700">₹{Number(service.charge || providerProfile.hourlyRateFrom || 0)}/hr</p>
+                            <p className="text-xs font-semibold text-emerald-700">
+                              {t('profilePage.providerPublic.perHour', { amount: String(Number(service.charge || providerProfile.hourlyRateFrom || 0)) })}
+                            </p>
                           </div>
                           <p className="mt-1 text-xs text-stone-600">{service.description}</p>
                         </div>
@@ -1079,16 +1120,16 @@ function ProfilePageContent() {
                   </div>
 
                   <div className="mt-4 rounded-xl border border-emerald-100 p-4">
-                    <h3 className="text-sm font-bold text-emerald-900">Work Gallery</h3>
+                    <h3 className="text-sm font-bold text-emerald-900">{t('profilePage.providerPublic.workGallery')}</h3>
                     <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
                       {providerGallery.slice(0, 6).map((url) => (
-                        <img alt="Provider work sample" className="h-28 w-full rounded-lg object-cover" key={url} src={url} />
+                        <img alt={t('providerEditor.galleryWorkAlt')} className="h-28 w-full rounded-lg object-cover" key={url} src={url} />
                       ))}
                     </div>
                   </div>
 
                   <div className="mt-4 rounded-xl border border-emerald-100 p-4">
-                    <h3 className="text-sm font-bold text-emerald-900">Availability</h3>
+                    <h3 className="text-sm font-bold text-emerald-900">{t('profilePage.providerPublic.availability')}</h3>
                     <p className="mt-2 text-sm text-stone-700">{providerProfile.availabilityTags.join(' • ')}</p>
                   </div>
                 </>
@@ -1096,14 +1137,14 @@ function ProfilePageContent() {
             </section>
 
             <aside className="w-full rounded-2xl border border-emerald-100 bg-white p-6 shadow-sm lg:w-1/3">
-              <h2 className="text-2xl font-bold text-emerald-900">Book Service</h2>
-              <p className="mt-1 text-sm text-stone-600">Confirm your requirement and initiate payment.</p>
+              <h2 className="text-2xl font-bold text-emerald-900">{t('profilePage.booking.title')}</h2>
+              <p className="mt-1 text-sm text-stone-600">{t('profilePage.booking.subtitle')}</p>
               <div className="mt-5 space-y-3">
                 {pendingPayment ? (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-                    <p className="text-xs font-semibold uppercase text-amber-800">Pending payment</p>
+                    <p className="text-xs font-semibold uppercase text-amber-800">{t('profilePage.booking.pendingPayment')}</p>
                     <p className="mt-1 text-sm text-amber-900">
-                      Booking {pendingPayment.jobId} is waiting for payment completion.
+                      {t('profilePage.booking.bookingWaiting', { jobId: pendingPayment.jobId })}
                     </p>
                     <div className="mt-2 flex gap-2">
                       <button
@@ -1112,24 +1153,24 @@ function ProfilePageContent() {
                         onClick={handleResumePayment}
                         type="button"
                       >
-                        Resume Payment
+                        {t('profilePage.booking.resumePayment')}
                       </button>
                       <button
                         className="rounded-lg border border-amber-300 bg-white px-3 py-1 text-xs font-semibold text-amber-800"
                         onClick={clearPendingPayment}
                         type="button"
                       >
-                        Clear
+                        {t('profilePage.booking.clear')}
                       </button>
                     </div>
                   </div>
                 ) : null}
                 <div className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">Service needed</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">{t('profilePage.booking.serviceNeeded')}</p>
                   <input
                     className="mt-2 w-full rounded-xl border border-emerald-100 bg-white px-3 py-2 text-sm"
                     onChange={(e) => setServiceName(e.target.value)}
-                    placeholder="Select or type service"
+                    placeholder={t('profilePage.booking.servicePlaceholder')}
                     type="text"
                     value={serviceName}
                   />
@@ -1149,8 +1190,8 @@ function ProfilePageContent() {
                   ) : null}
                 </div>
                 <div className="rounded-xl border border-emerald-100 bg-white px-3 py-2 text-sm text-stone-700">
-                  <p className="text-[11px] uppercase text-emerald-700">Estimated charge</p>
-                  <p className="font-semibold text-emerald-900">₹{estimatedRate}/hr</p>
+                  <p className="text-[11px] uppercase text-emerald-700">{t('profilePage.booking.estimatedCharge')}</p>
+                  <p className="font-semibold text-emerald-900">{t('profilePage.booking.perHour', { amount: String(estimatedRate) })}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <input
@@ -1170,23 +1211,23 @@ function ProfilePageContent() {
                 <textarea
                   className="w-full rounded-xl border border-emerald-100 px-3 py-2 text-sm"
                   onChange={(e) => setBookingNotes(e.target.value)}
-                  placeholder="Add notes for provider (address landmarks, urgency, access details)"
+                  placeholder={t('profilePage.booking.notesPlaceholder')}
                   rows={2}
                   value={bookingNotes}
                 />
-                <p className="text-[11px] text-stone-500">Tip: include landmark and preferred contact details for faster confirmation.</p>
+                <p className="text-[11px] text-stone-500">{t('profilePage.booking.tip')}</p>
                 <button
                   className="w-full rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-500 py-3 text-white disabled:opacity-70"
                   disabled={bookingLoading || !serviceName.trim() || !bookingDate || !bookingTime}
                   onClick={handleBookService}
                   type="button"
                 >
-                  {bookingLoading ? 'Booking...' : 'Book and Pay'}
+                  {bookingLoading ? t('profilePage.booking.bookingInProgress') : t('profilePage.booking.bookAndPay')}
                 </button>
                 {bookingMessage ? <p className="text-xs text-stone-600">{bookingMessage}</p> : null}
                 {paymentState ? (
                   <p className="text-sm text-emerald-700">
-                    Payment status: {paymentState === 'initiated' ? 'Initiated (PhonePe sandbox)' : paymentState}
+                    {t('profilePage.paymentStatus.label')} {paymentStatusLabel(paymentState)}
                   </p>
                 ) : null}
               </div>
@@ -1198,9 +1239,14 @@ function ProfilePageContent() {
   )
 }
 
+function ProfileSuspenseFallback() {
+  const { t } = useLocale()
+  return <div className="p-6 text-stone-600">{t('profilePage.suspenseLoading')}</div>
+}
+
 export default function ProfilePage() {
   return (
-    <Suspense fallback={<div className="p-6 text-stone-600">Loading profile...</div>}>
+    <Suspense fallback={<ProfileSuspenseFallback />}>
       <ProfilePageContent />
     </Suspense>
   )

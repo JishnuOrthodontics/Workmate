@@ -1,5 +1,7 @@
 import './globals.css'
 import { AuthProvider } from './auth-provider'
+import { LocaleDocumentSync } from './locale-document-sync'
+import { LocaleProvider } from './locale-provider'
 
 export const metadata = {
   title: 'Workmate - Rural Home Services',
@@ -12,6 +14,7 @@ export default function RootLayout({ children }) {
       <head>
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Malayalam:wght@400;500;600;700&display=swap" rel="stylesheet" />
         <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
         <script dangerouslySetInnerHTML={{ __html: `
           tailwind.config = {
@@ -107,7 +110,10 @@ export default function RootLayout({ children }) {
         ` }} />
       </head>
       <body className="min-h-screen bg-[#fcf9f2]">
-        <AuthProvider>{children}</AuthProvider>
+        <LocaleProvider>
+          <LocaleDocumentSync />
+          <AuthProvider>{children}</AuthProvider>
+        </LocaleProvider>
       </body>
     </html>
   )

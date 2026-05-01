@@ -64,6 +64,8 @@ export interface IWorkerProfile {
   };
   performance: {
     rating: number;
+    ratingCount?: number;
+    ratingUpdatedAt?: Date;
     totalJobs: number;
     cancellationRate: number;
     responseTime: number;
@@ -189,6 +191,8 @@ const WorkerProfileSchema = new Schema<IWorkerProfile>({
   },
   performance: {
     rating: { type: Number, default: 0 },
+    ratingCount: { type: Number, default: 0 },
+    ratingUpdatedAt: Date,
     totalJobs: { type: Number, default: 0 },
     cancellationRate: { type: Number, default: 0 },
     responseTime: Number,
