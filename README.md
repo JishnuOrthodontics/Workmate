@@ -235,19 +235,52 @@ Same payment and payout routes as implemented in code (gateway proxies for a sin
 
 ## Project structure
 
+Nx-style **monorepo** at the repo root (`nx.json`, `package.json`, shared `tsconfig.base.json`). Local Docker runs the **API gateway**, **auth**, and **payment** apps from `backend/apps` (see Dockerfiles — the gateway entrypoint is `backend/apps/api/src/main.ts`).
+
 ```text
 d4dent-rural-services/
-├── frontend/app/                  # Next.js UI (`src/i18n/` message catalogs + helpers)
-├── backend/apps/
-│   ├── api/                       # API gateway
-│   ├── auth-service/              # Auth
-│   └── payment-service/           # PhonePe + payouts
-├── backend/libs/data-access/      # Shared Mongoose models
+├── frontend/
+│   └── app/                       # Next.js 14 app (primary customer/provider UI)
+│       └── src/
+│           ├── app/               # App Router: layout, globals, auth-provider, locale/i18n helpers
+│           │   ├── page.tsx       # Home
+│           │   ├── layout.tsx
+│           │   ├── auth/          # Customer & provider sign-in/up
+│           │   ├── auth/admin/    # Staff admin sign-in
+│           │   ├── search/        # Provider discovery
+│           │   ├── dashboard/     # Customer dashboard
+│           │   ├── profile/       # Account + book-provider flow
+│           │   ├── admin/dashboard/
+│           │   └── provider/      # Provider dashboard + components (e.g. profile editor)
+│           ├── i18n/              # `en.json` / `ml.json`, `get-message.ts`, `types.ts`
+│           └── lib/               # e.g. `auth-client.ts` (session helpers)
+├── backend/
+│   ├── apps/
+│   │   ├── api/                   # API gateway (:3333) — bookings, search, profiles, notifications, admin, feedback
+│   │   ├── auth-service/          # Auth (:3334) — register/login, JWT
+│   │   ├── payment-service/       # Payments & payouts (:3003) — PhonePe, escrow fields
+│   │   └── …                      # Other Nx app folders (e.g. stubs / future clients) — not all are used by compose
+│   └── libs/
+│       └── data-access/           # Shared Mongoose models & DB helpers
+│           └── src/lib/
+│               ├── user.model.ts
+│               ├── jobs.model.ts
+│               ├── escrow.model.ts
+│               ├── notification.model.ts
+│               ├── payout.model.ts
+│               ├── feedback.model.ts   # customer → provider ratings
+│               └── database.ts
+├── tools/
+│   └── deploy-scripts/            # Deployment helpers (optional)
 ├── docker-compose.local.yml
-├── Dockerfile.api-gateway
+├── Dockerfile.api-gateway         # runs backend/apps/api/src/main.ts
 ├── Dockerfile.auth-service
 ├── Dockerfile.payment-service
-└── README.md
+├── test-local.sh · quick-start.sh
+├── PLATFORM_IMPROVEMENT_PLAN.md
+├── AGENTS.md                      # Nx / agent notes
+├── README.md
+└── …                              # eslint, prettier, .github, etc.
 ```
 
 ---
